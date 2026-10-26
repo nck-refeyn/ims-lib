@@ -83,13 +83,14 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ims_api_h.cmake)
 
 # Generate resources
 if (NOT WIN32)
+    # Run through sh, as build.sh is not marked executable in git; -e stops at the first failing xxd
     execute_process(
-        COMMAND ./build.sh
+        COMMAND sh -e build.sh
         WORKING_DIRECTORY ${api_resource_dir}
         RESULT_VARIABLE XXD_ERR
     )
     if (XXD_ERR)
-        MESSAGE( STATUS "Resource generation error:" ${XXD_ERR})
+        message(FATAL_ERROR "Resource generation (res/build.sh) failed: ${XXD_ERR}. Is xxd installed?")
     endif()
     set (api_db_resource ${api_resource_dir}/imshw.h)
 else()
