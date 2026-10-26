@@ -62,6 +62,19 @@ auto writes = dev().Requests(HostReport::Actions::SYNTH_REG);  // what the libra
 
 `ims_test::SimSystemTest` (in `unit/SimFixture.h`) gives each test a connected, initialised `IMSSystem` on an iMS-Pro + iMS4d simulator.
 
+## Bugs found by these tests
+
+Each fix has a regression test, named in the second column.
+
+| Problem | Regression test |
+|---|---|
+| `HostReport` fell through from `FW_UPGRADE`/`CTRLR_FW_UPGRADE` into `WAVE_SHAPING`, so their default `len` was always 2. iCSA firmware returns 4 bytes regardless, so it was masked there. | `FirmwareUpgrade/HostReportDefaultLength.*` |
+
+Not changed:
+
+- `res/build.sh` is not marked executable in git, so on Linux CMake cannot run it and `settings_ini.h` is never generated. Fix with `git update-index --chmod=+x res/build.sh`. CI runs the script explicitly meanwhile.
+- `ImageDownload` (like `SequenceDownload`, `ToneBufferDownload`, `CompensationTableDownload` and `Auxiliary`) keeps a reference to the object it is given, as documented, so passing a temporary is undefined behaviour. A deleted rvalue overload would make that a compile error, but would also break existing code that compiles today.
+
 ## Known issues
 
 These were found while writing the tests. Each bug has a `DISABLED_` test that asserts the intended behaviour; remove the prefix once it is fixed. To run them:
@@ -76,7 +89,6 @@ These were found while writing the tests. Each bug has a `DISABLED_` test that a
 | `ImageDownloadTest.DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe` | `ImageDownload::Impl` declares its worker threads before its buffers, so the destructor frees the buffers before joining the workers. The verify worker is still running after it fires `VERIFY_SUCCESS`, so destroying the downloader on that event corrupts the heap (`0xc0000374`; 4 of 5 runs). Fix: stop the workers at the start of `~Impl()`. |
 | `SignalPathTest.DISABLED_PhaseTuningUsesFull14BitRange` | `UpdatePhaseTuning` casts the 14-bit phase word through `uint8_t`. |
 | `ICSAImageTest.DISABLED_RepeatedDownloadsOnlySetMsbEnableBit` | Each `ImageDownload` writes `FPIFormat << 1` instead of setting bit 1. Bit 0 is read-only 1, so the register fills with ones (0x0001 → 0xFFFF over ~16 downloads) until the synth is power cycled. Seen on iCSA2510 and iCSA2605. On iCSA2605 the RF stayed correct with the register saturated. |
-| `DISABLED_FirmwareUpgrade/HostReportDefaultLength.*` | `HostReport` falls through from `FW_UPGRADE`/`CTRLR_FW_UPGRADE` into `WAVE_SHAPING`, so their default `len` is always 2. iCSA firmware returns 4 bytes regardless, so it's masked there. |
 
 Not covered by a test:
 

@@ -160,6 +160,7 @@ namespace iMS
 				default: m_fields.len = 0;
 				}
 			}
+			break;
 		}
 		case HostReport::Actions::WAVE_SHAPING: {
 			m_fields.len = 2;

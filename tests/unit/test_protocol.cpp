@@ -166,11 +166,9 @@ INSTANTIATE_TEST_SUITE_P(Actions, HostReportDefaultLength, ::testing::Values(
     DefaultLenCase{ HostReport::Actions::WAVE_SHAPING,  HostReport::Dir::WRITE, 0, 2 }
 ), DefaultLenName);
 
-// BUG: the FW_UPGRADE / CTRLR_FW_UPGRADE case in HostReport's constructor is missing a
-// `break` and falls through into WAVE_SHAPING, so every firmware-upgrade report gets len=2.
-// FirmwareUpgrade's status poll (READ addr 0) relies on this default and then requires a
-// payload of >= 4 bytes. Enable once HostReport.cpp is fixed.
-INSTANTIATE_TEST_SUITE_P(DISABLED_FirmwareUpgrade, HostReportDefaultLength, ::testing::Values(
+// Regression: the FW_UPGRADE / CTRLR_FW_UPGRADE case in HostReport's constructor was missing a
+// `break` and fell through into WAVE_SHAPING, so every firmware-upgrade report got len=2.
+INSTANTIATE_TEST_SUITE_P(FirmwareUpgrade, HostReportDefaultLength, ::testing::Values(
     DefaultLenCase{ HostReport::Actions::FW_UPGRADE,       HostReport::Dir::READ,  0, 4 },
     DefaultLenCase{ HostReport::Actions::FW_UPGRADE,       HostReport::Dir::READ,  1, 2 },
     DefaultLenCase{ HostReport::Actions::FW_UPGRADE,       HostReport::Dir::READ,  2, 4 },
