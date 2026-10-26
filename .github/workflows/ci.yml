@@ -69,6 +69,16 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
+      # The library's own install rules: DLL in bin/, import library in lib/, public headers in include/
+      - name: Install
+        run: cmake --install build --config Release --prefix install
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imslib-windows-${{ matrix.arch }}
+          path: install/
+          if-no-files-found: error
+
   linux:
     name: Linux (GCC)
     runs-on: ubuntu-24.04
@@ -91,3 +101,12 @@ jobs:
 
       - name: Build
         run: cmake --build build -j 4
+
+      - name: Install
+        run: cmake --install build --prefix install
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imslib-linux-x86_64
+          path: install/
+          if-no-files-found: error
