@@ -63,7 +63,8 @@ jobs:
         run: conan cache clean
 
       - name: Configure
-        run: cmake -S . -B build -A ${{ matrix.platform }} -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake
+        # Quoted: PowerShell splits an unquoted -D argument at the '.'
+        run: cmake -S . -B build -A ${{ matrix.platform }} "-DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake"
 
       - name: Build
         run: cmake --build build --config Release --parallel
