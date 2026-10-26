@@ -549,6 +549,13 @@ namespace iMS
 
 	ImageDownload::Impl::~Impl()
 	{
+		// Join the workers before anything they use is destroyed. They are declared first, so
+		// would otherwise be joined last, after the image buffers and event trigger are freed;
+		// the verify worker still runs after triggering VERIFY_SUCCESS.
+		downloadWorker.stop();
+		verifyWorker.stop();
+		rxWorker.stop();
+
 		// Unsubscribe listener
         with_locked(m_ims, [this](std::shared_ptr<IMSSystem> ims) {   
             auto conn = ims->Connection();
@@ -2463,9 +2470,12 @@ namespace iMS
 		conn->MessageEventSubscribe(MessageEvents::MEMORY_TRANSFER_COMPLETE, dmah);
 	}
 
-	SequenceDownload::Impl::~Impl() 
+	SequenceDownload::Impl::~Impl()
 	{
-        with_locked(m_ims, [&](std::shared_ptr<IMSSystem> ims) {         
+		// Join the worker before the sequence buffer and event trigger it uses are destroyed
+		downloadWorker.stop();
+
+        with_locked(m_ims, [&](std::shared_ptr<IMSSystem> ims) {
             // Unsubscribe listener
             auto conn = ims->Connection();
             if (ims->Ctlr().Model() != "iMSP" || ims->Ctlr().GetVersion().revision > 46) {

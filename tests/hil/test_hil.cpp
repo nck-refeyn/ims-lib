@@ -129,9 +129,8 @@ TEST_F(Hil, ReconnectCycles)
 
 class HilImage : public Hil, public ::testing::WithParamInterface<int> {};
 
-// BUG: hil::DownloadImage destroys the ImageDownload as soon as VERIFY_SUCCESS arrives, while the
-// verify worker is still running, which corrupts the heap (0xc0000374) in most runs. See
-// ImageDownloadTest.DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe. Enable once fixed.
+// BUG: a duplicate message handle gives a response to the wrong request, so a large verify
+// occasionally fails. Enable once message handles are unique.
 TEST_P(HilImage, DISABLED_DownloadVerifies)
 {
     // GTEST_SKIP only returns from the function it is in, so it must be here, not in a helper
