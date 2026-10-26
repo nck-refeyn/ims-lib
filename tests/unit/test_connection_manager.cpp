@@ -298,12 +298,11 @@ TEST_F(ConnectionManagerTest, DISABLED_LostResponseInPipelineDoesNotShiftLaterRe
     }
 }
 
-// BUG: completed messages stay in the registry for autoFreeTimeout (10 s by default) and the
-// parser thread snapshots and walks the whole registry several times per pass, so the cost of
-// every message grows with the number sent in the last 10 s. Measured on a zero-latency
-// simulator: ~130 us per blocking read for the first 500, ~1.1 ms after 3000. Image transfers
-// through CM_Common::MemoryTransfer become quadratic for the same reason. Enable once fixed.
-TEST_F(ConnectionManagerTest, DISABLED_RoundTripCostDoesNotGrowWithMessageHistory)
+// Regression: completed messages are kept for autoFreeTimeout (10 s) and the parser used to walk all
+// of them several times per pass, so the cost of each message grew with the number sent in the
+// last 10 s (~130 us per blocking read at first, ~1.1 ms after 3000). The parser now only walks
+// pending messages and frees completed ones periodically.
+TEST_F(ConnectionManagerTest, RoundTripCostDoesNotGrowWithMessageHistory)
 {
     const auto rpt = RegRead(HostReport::Actions::CTRLR_REG, 0);
     auto block = [&] {
@@ -312,11 +311,14 @@ TEST_F(ConnectionManagerTest, DISABLED_RoundTripCostDoesNotGrowWithMessageHistor
         return std::chrono::steady_clock::now() - t0;
     };
 
-    const auto first = block();
-    for (int i = 0; i < 4; i++) block();
-    const auto last = block();
-    EXPECT_LT(last, first * 3) << "first 500: " << std::chrono::duration_cast<std::chrono::milliseconds>(first).count()
-                               << " ms, after 2500 more: " << std::chrono::duration_cast<std::chrono::milliseconds>(last).count() << " ms";
+    // Best of three, so a burst of load from tests running in parallel can't decide the result
+    auto best = [&] { return std::min({ block(), block(), block() }); };
+
+    const auto first = best();
+    for (int i = 0; i < 2; i++) block();
+    const auto last = best();
+    EXPECT_LT(last, first * 3) << "first 1500: " << std::chrono::duration_cast<std::chrono::milliseconds>(first).count()
+                               << " ms per 500, after 1000 more: " << std::chrono::duration_cast<std::chrono::milliseconds>(last).count() << " ms per 500";
 }
 
 // Regression: transports mark a message SENT after writing it, by which time the parser may already

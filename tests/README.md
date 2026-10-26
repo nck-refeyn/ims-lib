@@ -74,6 +74,7 @@ Each fix has a regression test, named in the second column.
 
 | Problem | Regression test |
 |---|---|
+| Completed messages stay in the registry for 10 s, and the parser walked all of them several times per pass. Round-trip cost grew with recent traffic (~130 µs → ~1.1 ms after 3000 messages), and `CM_Common::MemoryTransfer` was quadratic. The parser now only walks pending messages and frees completed ones every 100 ms. The 65k-transaction transfer test went from 9 s to ~1.2 s. | `ConnectionManagerTest.RoundTripCostDoesNotGrowWithMessageHistory` |
 | `ImageDownload`, `SequenceDownload`, `ToneBufferDownload` and `CompensationTableDownload` declare their worker threads before the data they use, so their destructors freed the data before joining the workers. Destroying an `ImageDownload` on `VERIFY_SUCCESS` corrupted the heap (`0xc0000374`) in 4 of 5 runs. Workers are now stopped first. | `ImageDownloadTest.DestroyingDownloaderRightAfterVerifyIsSafe` |
 | Each `ImageDownload` wrote `FPIFormat << 1` instead of setting bit 1. Bit 0 is read-only 1, so the register filled with ones (0x0001 → 0xFFFF over ~16 downloads) until a power cycle. Seen on iCSA2510 and iCSA2605. On iCSA2605 the RF stayed correct with the register saturated. It now writes `CTRLR_REG_FPIFormat_MSB_Enable`, which also repairs a corrupted register. | `ICSAImageTest.RepeatedDownloadsOnlySetMsbEnableBit` |
 | `Disconnect()` in every transport cleared `DeviceIsOpen` and notified the sender and transfer threads without holding their mutexes, so a thread could miss the wake-up and never be joined. `CM_Common::SignalClosed()` now does this under the mutexes. The `ImageDownload`, `ToneBufferDownload` and `CompensationTableDownload` receive workers waited without a predicate, so a stop during start-up could hang their destructors. | `ConnectionManagerCycles.RapidConnectDisconnectDoesNotHang` (a stress check; the window is too narrow to reproduce on demand) |
@@ -98,8 +99,7 @@ These were found while writing the tests. Each bug has a `DISABLED_` test that a
 |---|---|
 | `ConnectionManagerTest.DISABLED_LostResponseInPipelineDoesNotShiftLaterResponses` | Responses have no sequence number. After one lost response, every later in-flight response is given to the request before it and reported as `Done()` with no error. |
 | `MemoryTransferTest.DISABLED_LostResponseDuringUploadIsReported` | Because of the above, a lost response during `MemoryUpload` returns misplaced data and `MEMORY_TRANSFER_COMPLETE`; `MEMORY_TRANSFER_ERROR` is never raised. |
-| `ConnectionManagerTest.DISABLED_RoundTripCostDoesNotGrowWithMessageHistory` | Completed messages stay in the registry for 10 s and are rescanned on every parser pass. Round-trip cost grows with recent traffic (~130 µs → ~1.1 ms after 3000 messages on a zero-latency link), and `CM_Common::MemoryTransfer` becomes quadratic. |
-| `MemoryTransferTest.DISABLED_TransactionsBeyond64kUseContextForUpperAddressBits` | `CM_Common::MemoryTransfer` dereferences a message before checking it for null, so a message freed before it is harvested crashes it. The test frees completed messages after 1 s to avoid the quadratic cost above, which on a slow machine (the 32-bit Windows CI runner) can happen mid-transfer. |
+| `MemoryTransferTest.DISABLED_TransactionsBeyond64kUseContextForUpperAddressBits` | `CM_Common::MemoryTransfer` dereferences a message before checking it for null, so a message freed before it is harvested crashes it (seen on the 32-bit Windows CI runner). |
 
 Not covered by a test:
 
