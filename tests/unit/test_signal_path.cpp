@@ -108,10 +108,9 @@ TEST_F(SignalPathTest, PhaseTuningSmallAngle)
     EXPECT_EQ(r[0].Words(), (std::vector<std::uint16_t>{ 45 })); // floor(1 * 16383 / 360)
 }
 
-// BUG: UpdatePhaseTuning computes a 14-bit phase word but casts it through std::uint8_t
-// (SignalPath.cpp, `std::uint16_t phs_int = static_cast<std::uint8_t>(...)`), so any offset
-// above ~5.6 degrees is corrupted. Enable once fixed.
-TEST_F(SignalPathTest, DISABLED_PhaseTuningUsesFull14BitRange)
+// Regression: UpdatePhaseTuning used to cast its 14-bit phase word through std::uint8_t, so any
+// offset above ~5.6 degrees was corrupted.
+TEST_F(SignalPathTest, PhaseTuningUsesFull14BitRange)
 {
     SignalPath sp(ims());
     ASSERT_TRUE(sp.UpdatePhaseTuning(RFChannel(1), Degrees(90.0)));
