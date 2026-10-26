@@ -209,6 +209,8 @@ namespace iMS {
 	const std::uint16_t CTRLR_REG_DutyCycle = 72;
 	const std::uint16_t CTRLR_REG_OscPhase = 73;
 	const std::uint16_t CTRLR_REG_FPIFormat = 74;
+	const std::uint16_t CTRLR_REG_FPIFormat_MSB_Supported = 0x0001;  // read-only
+	const std::uint16_t CTRLR_REG_FPIFormat_MSB_Enable = 0x0002;
 
 	const std::uint16_t SYNTH_REG_Img_FormatLo = 72;
 	const std::uint16_t SYNTH_REG_Img_FormatHi = 73;

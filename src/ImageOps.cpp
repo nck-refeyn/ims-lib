@@ -786,14 +786,16 @@ namespace iMS
 
 				DeviceReport ioresp = conn->SendMsgBlocking(*iorpt);
 
-				if (ioresp.Payload<std::uint16_t>() & 1)
+				if (ioresp.Payload<std::uint16_t>() & CTRLR_REG_FPIFormat_MSB_Supported)
 				{
 					// Device supports MSB Mode
 					m_msbFirst = 1;
 
 					delete iorpt;
 					iorpt = new HostReport(HostReport::Actions::CTRLR_REG, HostReport::Dir::WRITE, CTRLR_REG_FPIFormat);
-					iorpt->Payload<std::uint16_t>(ioresp.Payload<std::uint16_t>() << 1);
+					// Bit 1 enables MSB-first mode. Bit 0 (supported) is read-only and always reads 1, so
+					// writing back the value read shifted left accumulated set bits with every download.
+					iorpt->Payload<std::uint16_t>(CTRLR_REG_FPIFormat_MSB_Enable);
 
 					// Set Controller to download mode
 					if (NullMessage == conn->SendMsg(*iorpt))

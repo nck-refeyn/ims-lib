@@ -198,12 +198,10 @@ TEST_F(ICSAImageTest, AlreadyPresentImageIsNotDownloadedAgain)
     EXPECT_TRUE(dev().Requests(HostReport::Actions::CTRLR_IMAGE).empty());
 }
 
-// BUG: before every download ImageDownload reads FPIFormat and writes back `value << 1`, meaning
-// to set bit 1. Bit 0 is read-only and always 1, so each download shifts in another set bit:
-// 0x0001 -> 0x0003 -> 0x0007 ... until 0xFFFF, persisting until the synth is power cycled. Seen on
-// iCSA2510 (0x007F at connect) and iCSA2605 (0x0001 -> 0x0FFF over 11 downloads). The value should
-// stay at 0x0003. Enable once fixed.
-TEST_F(ICSAImageTest, DISABLED_RepeatedDownloadsOnlySetMsbEnableBit)
+// Regression: ImageDownload used to write FPIFormat back as `value << 1`. Bit 0 is read-only and
+// always 1, so every download shifted in another set bit (0x0001 -> 0x0003 -> 0x0007 ... 0xFFFF),
+// as seen on iCSA2510 and iCSA2605. It now writes just the MSB-enable bit.
+TEST_F(ICSAImageTest, RepeatedDownloadsOnlySetMsbEnableBit)
 {
     for (int i = 0; i < 3; i++) ASSERT_TRUE(Download(Ramp(10 + i)));
     EXPECT_EQ(dev().Reg(Target::Controller, CTRLR_REG_FPIFormat), 0x0003);
