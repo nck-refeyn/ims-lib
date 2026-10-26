@@ -36,9 +36,9 @@ jobs:
           - arch: x86
             platform: Win32
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -54,7 +54,7 @@ jobs:
           "hash=$((Get-FileHash $profile).Hash)" >> $env:GITHUB_OUTPUT
 
       # Keyed on the detected profile so a runner image with a new MSVC starts a fresh cache
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.conan2/p
           key: conan-${{ matrix.arch }}-${{ steps.profile.outputs.hash }}-${{ hashFiles('conanfile.py') }}
@@ -77,7 +77,7 @@ jobs:
       - name: Install
         run: cmake --install build --config Release --prefix install
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: imslib-windows-${{ matrix.arch }}
           path: install/
@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -109,7 +109,7 @@ jobs:
       - name: Install
         run: cmake --install build --prefix install
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: imslib-linux-x86_64
           path: install/
@@ -127,7 +127,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # v<version> is a release, v<version>-<label> a pre-release; anything else is a mistake
       - name: Check the tag matches LibVersion.h
@@ -142,7 +142,7 @@ jobs:
           fi
           echo "prerelease=$([[ -n "${BASH_REMATCH[1]}" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
 
@@ -171,7 +171,7 @@ jobs:
       TAG: ${{ github.ref_name }}
     steps:
       # Kept configured with the key, for the push below
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.repository_owner }}/imslib-python
           # Set the variable to test an imslib-python branch before merging it
