@@ -26,8 +26,6 @@ ctest --test-dir build/tests -j 8 --output-on-failure      # unit + simulated HI
 ctest --test-dir build/tests -L unit                       # unit only
 ```
 
-Use `RelWithDebInfo` on MinGW for now. Debug builds abort intermittently because of the `std::shared_mutex` issue described under [Known issues](#known-issues).
-
 On Linux, run `bash build.sh` in `res/` before configuring. CMake tries to run it, but it is not marked executable in git.
 
 Library logging is silenced in tests. Set `IMS_TEST_LOG=trace|debug|info|warning|error` to see it.
@@ -74,6 +72,7 @@ Each fix has a regression test, named in the second column.
 | `UpdatePhaseTuning` cast its 14-bit phase word through `uint8_t`. | `SignalPathTest.PhaseTuningUsesFull14BitRange` |
 | `HostReport` fell through from `FW_UPGRADE`/`CTRLR_FW_UPGRADE` into `WAVE_SHAPING`, so their default `len` was always 2. iCSA firmware returns 4 bytes regardless, so it was masked there. | `FirmwareUpgrade/HostReportDefaultLength.*` |
 | `FWVersion` read four words from a vector of any size. | `FWVersion.WrongSizeYieldsInvalidVersion` |
+| MinGW: concurrent *first* use of a `std::shared_mutex` fails in winpthreads with `EINVAL`. Debug builds (GCC 15 enables libstdc++ assertions at `-O0`) aborted; Release silently skipped the lock. `MessageRegistry` and `Message` now use plain mutexes; `IEventTrigger` initialises its lock in its constructor. | Debug runs of the whole suite |
 
 Not changed:
 
@@ -94,7 +93,6 @@ These were found while writing the tests. Each bug has a `DISABLED_` test that a
 
 Not covered by a test:
 
-- **MinGW `std::shared_mutex`**: concurrent *first* use of a `std::shared_mutex` fails in winpthreads with `EINVAL`. In Debug, GCC 15's libstdc++ assertions abort the process. In Release the lock silently isn't taken. It affects `MessageRegistry`, `Message` and `IEventTrigger`. Locking each mutex once in its owner's constructor, before other threads can see it, avoids it.
 - `Message::setStatus` notifies without holding `m_waitMutex`, so the untimed `waitForCompletion()` used by `SendMsgBlocking` can miss its wakeup.
 - `DeviceReport::Done()` is also true for CRC errors, and most callers check only `Done()`.
 

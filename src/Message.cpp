@@ -108,14 +108,14 @@ namespace iMS
 
     // Wait until status changes to RX_OK or timeout
     bool Message::waitForCompletion(std::chrono::milliseconds timeout) {
-        std::shared_lock lock(m_waitMutex);
+        std::unique_lock<std::mutex> lock(m_waitMutex);
         return m_cv.wait_for(lock, timeout, [&]{ 
 			return isTerminal(m_status.load(std::memory_order_acquire));
         });
     }
 
     void Message::waitForCompletion() {
-        std::shared_lock lock(m_waitMutex);
+        std::unique_lock<std::mutex> lock(m_waitMutex);
         m_cv.wait(lock, [&]{ 
 			return isTerminal(m_status.load(std::memory_order_acquire));
         });

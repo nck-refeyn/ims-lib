@@ -30,6 +30,9 @@ namespace iMS {
 
 	IEventTrigger::IEventTrigger()
 	{
+		// winpthreads (MinGW) initialises std::shared_mutex lazily and fails if two threads make
+		// the first use concurrently; use it once here, before other threads can see the object
+		std::unique_lock maplck{ m_mapMutex };
 	}
 
 	IEventTrigger::~IEventTrigger()

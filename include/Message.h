@@ -30,7 +30,7 @@
 #include <chrono>
 #include <queue>
 #include <condition_variable>
-#include <shared_mutex>
+#include <mutex>
 #include <atomic>
 
 namespace iMS
@@ -91,9 +91,9 @@ namespace iMS
 		std::deque<std::uint8_t> unparsed_buf;
 
         // Synchronisation
-        mutable std::shared_mutex m_waitMutex;
+        mutable std::mutex m_waitMutex;
 		mutable std::mutex m_parseMutex;
-		std::condition_variable_any m_cv;
+		std::condition_variable m_cv;
 	};
 
 }
