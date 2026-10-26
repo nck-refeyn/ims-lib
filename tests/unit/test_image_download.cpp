@@ -225,3 +225,26 @@ TEST_F(ImageDownloadTest, DestroyingDownloaderRightAfterVerifyIsSafe)
         ImageTableViewer(ims()).Clear();
     }
 }
+
+namespace {
+
+    int DownloadAndWait(ImageDownload& dl, ims_test::EventRecorder& rec)
+    {
+        if (!dl.StartDownload()) return -2;
+        return rec.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 10s);
+    }
+
+}
+
+TEST_F(ImageDownloadTest, LostResponseFailsDownload)
+{
+    dev().SetHandler([this, n = 0](const Request& r) mutable -> std::optional<Response> {
+        if (r.action == HostReport::Actions::CTRLR_IMAGE && ++n == 5) dev().InjectFault(Fault::Drop);
+        return std::nullopt;
+    });
+    const auto img = Ramp(500);
+    ImageDownload dl(ims(), img);
+    Subscribe(dl);
+    EXPECT_EQ(DownloadAndWait(dl, events), E::DOWNLOAD_FAIL_TRANSFER_ABORT);
+    Unsubscribe(dl);
+}

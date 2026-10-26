@@ -489,6 +489,8 @@ namespace iMS {
         unsigned int dl_max_in_flight = DefaultPolicy::DMA_MAX_TRANSACTION_SIZE / std::max<unsigned int>(1,DefaultPolicy::DL_TRANSFER_SIZE); 
         unsigned int ul_max_in_flight = DefaultPolicy::DMA_MAX_TRANSACTION_SIZE / std::max<unsigned int>(1,DefaultPolicy::UL_TRANSFER_SIZE); 
         std::deque<MessageHandle> inflight;
+        // Set when a transaction completes without a good response (timeout, error or freed)
+        bool transferFailed = false;
 
         // Lambda to wait for any in-flight message to complete
         auto waitForCompletion = [&](std::deque<MessageHandle>& inflight, unsigned int max_in_flight, bool expecting_more) {
@@ -503,9 +505,11 @@ namespace iMS {
                     std::vector<uint8_t> payload;
 
                     std::shared_ptr<Message> msg = m_msgRegistry.findMessage(handle);
-                    
-                    if (msg->isComplete() || msg == nullptr) {
-                        if (FastTransferStatus.load() == _FastTransferStatus::UPLOADING && msg != nullptr) {
+
+                    if (msg == nullptr || msg->isComplete()) {
+                        if (msg == nullptr || msg->getStatus() != Message::Status::RX_OK) {
+                            transferFailed = true;
+                        } else if (FastTransferStatus.load() == _FastTransferStatus::UPLOADING) {
                             payload = msg->Response().Payload<std::vector<uint8_t>>(); // collect locally
                         }
                         if (!payload.empty()) completedPayloads.push_back(std::move(payload));
@@ -519,7 +523,8 @@ namespace iMS {
                 // auto t1 = std::chrono::steady_clock::now();
                 // auto hold = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
                 // BOOST_LOG_SEV(lg::get(), sev::trace) << "Memory Transfer held lock for " << hold << " us. AnyRemoved = " << anyRemoved << ". inflight.size() = " << inflight.size();
-                return anyRemoved || (expecting_more && inflight.size() < max_in_flight);
+                // A closed connection stops the parser, so in-flight messages would never complete
+                return anyRemoved || (expecting_more && inflight.size() < max_in_flight) || !DeviceIsOpen;
             });
 
             // Append upload payloads after releasing the lock
@@ -537,6 +542,7 @@ namespace iMS {
                 if (!DeviceIsOpen || (FastTransferStatus.load() == _FastTransferStatus::IDLE)) continue;
 
 				unsigned int bytesTransferred = 0;
+				transferFailed = false;
 
 				if (FastTransferStatus.load() == _FastTransferStatus::UPLOADING) fti->m_data.clear();
 
@@ -549,7 +555,7 @@ namespace iMS {
                 bool downloading = FastTransferStatus.load() == _FastTransferStatus::DOWNLOADING;
                 unsigned int max_in_flight = downloading ? dl_max_in_flight : ul_max_in_flight;
                 for (unsigned int i = 0; i < fti->m_transCount; i++) {
-                    if (FastTransferStatus.load() == _FastTransferStatus::IDLE)
+                    if (FastTransferStatus.load() == _FastTransferStatus::IDLE || !DeviceIsOpen)
                         break;
 
                     HostReport::Dir dir = downloading ? HostReport::Dir::WRITE : HostReport::Dir::READ;
@@ -602,8 +608,13 @@ namespace iMS {
                 }
 
                 // Drain remaining messages
-                while (!inflight.empty()) {
+                while (!inflight.empty() && DeviceIsOpen) {
                     waitForCompletion(inflight, max_in_flight, false);
+                }
+                // Disconnected part way through
+                if (!inflight.empty() || bytesTransferred < static_cast<unsigned int>(fti->m_len)) {
+                    transferFailed = true;
+                    inflight.clear();
                 }
 
 #if defined(DMA_PERFORMANCE_MEASUREMENT_MODE)
@@ -622,7 +633,12 @@ namespace iMS {
 				fti = nullptr;
 
 				FastTransferStatus.store(_FastTransferStatus::IDLE);
-				mMsgEvent.Trigger<int>(this, MessageEvents::MEMORY_TRANSFER_COMPLETE, bytesTransferred);
+				if (transferFailed) {
+					BOOST_LOG_SEV(lg::get(), sev::error) << "Memory transfer failed: a transaction got no valid response";
+					mMsgEvent.Trigger<int>(this, MessageEvents::MEMORY_TRANSFER_ERROR, bytesTransferred);
+				} else {
+					mMsgEvent.Trigger<int>(this, MessageEvents::MEMORY_TRANSFER_COMPLETE, bytesTransferred);
+				}
 			}
 		}
 
