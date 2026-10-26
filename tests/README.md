@@ -66,6 +66,7 @@ Each fix has a regression test, named in the second column.
 
 | Problem | Regression test |
 |---|---|
+| `SendMsg` queued a message before registering it, so on a fast link its response could arrive before the message existed. | `ImageDownloadTest.DestroyingDownloaderRightAfterVerifyIsSafe` (exposed it) |
 | A lost response during a memory transfer was never reported: `MEMORY_TRANSFER_COMPLETE` was raised with missing or misplaced data. Failed transactions now raise `MEMORY_TRANSFER_ERROR`, which `ImageDownload` turns into `DOWNLOAD_FAIL_TRANSFER_ABORT`. | `MemoryTransferTest.LostResponseDuringDownloadIsReported`, `ImageDownloadTest.LostResponseFailsDownload` |
 | Completed messages stay in the registry for 10 s, and the parser walked all of them several times per pass. Round-trip cost grew with recent traffic (~130 µs → ~1.1 ms after 3000 messages), and `CM_Common::MemoryTransfer` was quadratic. The parser now only walks pending messages and frees completed ones every 100 ms. The 65k-transaction transfer test went from 9 s to ~1.2 s. | `ConnectionManagerTest.RoundTripCostDoesNotGrowWithMessageHistory` |
 | `ImageDownload`, `SequenceDownload`, `ToneBufferDownload` and `CompensationTableDownload` declare their worker threads before the data they use, so their destructors freed the data before joining the workers. Destroying an `ImageDownload` on `VERIFY_SUCCESS` corrupted the heap (`0xc0000374`) in 4 of 5 runs. Workers are now stopped first. | `ImageDownloadTest.DestroyingDownloaderRightAfterVerifyIsSafe` |

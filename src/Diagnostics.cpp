@@ -289,7 +289,7 @@ namespace iMS
 
 			// Check for response and send to user code
 			{
-				if (!m_parent->m_DiagReadList.empty()) {
+				{  // the list is checked under m_DiagList_mutex below
                     with_locked(m_parent->m_ims, [&](std::shared_ptr<IMSSystem> ims) {   
                         auto conn = ims->Connection();
                         std::unique_lock<std::mutex> lck{ m_parent->m_DiagList_mutex };
@@ -353,7 +353,7 @@ namespace iMS
 
 			// Check for response and send to user code
 			{
-				if (!m_parent->m_DiagReadList.empty()) {
+				{  // the list is checked under m_DiagList_mutex below
 					std::unique_lock<std::mutex> lck{ m_parent->m_DiagList_mutex };
 					for (std::list<MessageHandle>::iterator it = m_parent->m_DiagReadList.begin(); it != m_parent->m_DiagReadList.end();)
 					{
@@ -388,14 +388,16 @@ namespace iMS
             }
             else return false;
 
+            // Record the handle under the list mutex before the response handler can look for it
+            std::unique_lock<std::mutex> lck{ p_Impl->m_DiagList_mutex };
             MessageHandle h = conn->SendMsg(*iorpt);
             if (NullMessage == h)
             {
+                lck.unlock();
                 delete iorpt;
                 return false;
             }
             else {
-                std::unique_lock<std::mutex> lck{ p_Impl->m_DiagList_mutex };
                 p_Impl->m_DiagReadList.push_back(h);
                 lck.unlock();
             }
@@ -426,14 +428,16 @@ namespace iMS
             f.len = 4;
             iorpt->Fields(f);
 
+            // Record the handle under the list mutex before the response handler can look for it
+            std::unique_lock<std::mutex> lck{ p_Impl->m_DiagList_mutex };
             MessageHandle h = conn->SendMsg(*iorpt);
             if (NullMessage == h)
             {
+                lck.unlock();
                 delete iorpt;
                 return false;
             }
             else {
-                std::unique_lock<std::mutex> lck{ p_Impl->m_DiagList_mutex };
                 p_Impl->m_DiagReadList.push_back(h);
                 lck.unlock();
             }

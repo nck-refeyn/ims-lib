@@ -950,6 +950,7 @@ namespace iMS
 				int img_index = 0;
 				int length = m_Image.Size();
 				dl_final = NullMessage;
+				MessageHandle last_sent = NullMessage;
 
 				std::vector<std::uint8_t> img_data;
 				Image::const_iterator it = m_Image.cbegin();
@@ -1011,20 +1012,26 @@ namespace iMS
 
 					iorpt = new HostReport(HostReport::Actions::CTRLR_IMAGE, HostReport::Dir::WRITE, img_addr);
 					iorpt->Payload<std::vector<std::uint8_t>>(img_data);
-					MessageHandle h = conn->SendMsg(*iorpt);
-					delete iorpt;
 
-					// Add message handle to download list so we can check the responses
+					// Send and add the handle to the download list under its mutex, so the response
+					// worker cannot look for the handle before it is recorded
 					std::unique_lock<std::mutex> dllck{ dl_list_mutex };
-					dl_list.push_back(h);
+					last_sent = conn->SendMsg(*iorpt);
+					dl_list.push_back(last_sent);
 					dllck.unlock();
+					delete iorpt;
 
 					img_data.clear();
 				}
 
+				// The worker reports the end when it sees dl_final; if the last response has already
+				// been handled, nothing would, so report it here
 				std::unique_lock<std::mutex> dllck{ dl_list_mutex };
-				if (!dl_list.empty()) dl_final = dl_list.back();
+				dl_final = last_sent;
+				const bool alreadyHandled = last_sent != NullMessage &&
+					std::find(dl_list.begin(), dl_list.end(), last_sent) == dl_list.end() && conn->Response(last_sent).Done();
 				dllck.unlock();
+				if (alreadyHandled) m_Event->Trigger<int>((void *)this, ImageDownloadEvents::DOWNLOAD_FINISHED, 0);
 
 				// Program Image Length into NumPts register
 				iorpt = new HostReport(HostReport::Actions::CTRLR_REG, HostReport::Dir::WRITE, CTRLR_REG_NumPts);
