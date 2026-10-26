@@ -95,11 +95,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build libboost-regex-dev libboost-log-dev libxml2-dev xxd
 
-      # CMake runs res/build.sh itself, but it is not marked executable in git
-      - name: Generate embedded resources
-        working-directory: res
-        run: bash build.sh
-
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
