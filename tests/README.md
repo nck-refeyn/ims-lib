@@ -70,12 +70,15 @@ auto writes = dev().Requests(HostReport::Actions::SYNTH_REG);  // what the libra
 
 ## Bugs found by these tests
 
-Each fix has a regression test, named in the second column.
+All fixed; each fix has a regression test, named in the second column.
 
 | Problem | Regression test |
 |---|---|
+| Responses have no sequence number and went to the oldest waiting message, so after one lost response every later one was attributed to the request before it and reported as `Done()` with no error. Responses are now checked against the request they answer: target, action and address, all echoed by the firmware (confirmed on an iCSA). | `ConnectionManagerTest.LostResponseInPipelineDoesNotShiftLaterResponses`, `ResponseWithOtherAddressIsAcceptedWhenNoLaterRequestMatches` |
+| On an FTDI-connected iCSA about one response in 6,500 arrives damaged during image downloads: a stray byte in the stream (once `0x49`, the interrupt report ID), or about 60 bytes missing (a lost USB packet). The parser fed bytes straight into whichever message was waiting, so one bad byte lost or shifted the following responses (30 of 40 in a simulated pipeline). A CRC-failed frame was also reported as a device error, because its header bits were checked before its CRC; that is what aborted a download on the iCSA. The received stream is now framed separately: damaged bytes are skipped until a valid report lines up, and each report goes to the request it answers. | `LinkCorruptionTest.*`, `Bytes/StrayByte.*` |
 | `SendMsg` queued a message before registering it, so on a fast link its response could arrive before the message existed. | `ImageDownloadTest.DestroyingDownloaderRightAfterVerifyIsSafe` (exposed it) |
-| A lost response during a memory transfer was never reported: `MEMORY_TRANSFER_COMPLETE` was raised with missing or misplaced data. Failed transactions now raise `MEMORY_TRANSFER_ERROR`, which `ImageDownload` turns into `DOWNLOAD_FAIL_TRANSFER_ABORT`. | `MemoryTransferTest.LostResponseDuringDownloadIsReported`, `ImageDownloadTest.LostResponseFailsDownload` |
+| A response arriving after its request had timed out was taken by the next request. It is now discarded, and the next request keeps waiting for its own. | `ConnectionManagerTest.LateResponseIsNotGivenToTheNextRequest` |
+| A lost response during a memory transfer was never reported: `MEMORY_TRANSFER_COMPLETE` was raised with missing or misplaced data. Failed transactions now raise `MEMORY_TRANSFER_ERROR`, which `ImageDownload` turns into `DOWNLOAD_FAIL_TRANSFER_ABORT`. | `MemoryTransferTest.LostResponseDuring{Upload,Download}IsReported`, `ImageDownloadTest.LostResponseFailsDownload` |
 | Completed messages stay in the registry for 10 s, and the parser walked all of them several times per pass. Round-trip cost grew with recent traffic (~130 µs → ~1.1 ms after 3000 messages), and `CM_Common::MemoryTransfer` was quadratic. The parser now only walks pending messages and frees completed ones every 100 ms. The 65k-transaction transfer test went from 9 s to ~1.2 s. | `ConnectionManagerTest.RoundTripCostDoesNotGrowWithMessageHistory` |
 | `ImageDownload`, `SequenceDownload`, `ToneBufferDownload` and `CompensationTableDownload` declare their worker threads before the data they use, so their destructors freed the data before joining the workers. Destroying an `ImageDownload` on `VERIFY_SUCCESS` corrupted the heap (`0xc0000374`) in 4 of 5 runs. Workers are now stopped first. | `ImageDownloadTest.DestroyingDownloaderRightAfterVerifyIsSafe` |
 | Each `ImageDownload` wrote `FPIFormat << 1` instead of setting bit 1. Bit 0 is read-only 1, so the register filled with ones (0x0001 → 0xFFFF over ~16 downloads) until a power cycle. Seen on iCSA2510 and iCSA2605. On iCSA2605 the RF stayed correct with the register saturated. It now writes `CTRLR_REG_FPIFormat_MSB_Enable`, which also repairs a corrupted register. | `ICSAImageTest.RepeatedDownloadsOnlySetMsbEnableBit` |
@@ -96,16 +99,6 @@ Not changed:
 - `res/build.sh` is not marked executable in git, so on Linux CMake cannot run it and `settings_ini.h` is never generated. Fix with `git update-index --chmod=+x res/build.sh`. CI runs the script explicitly meanwhile.
 - `ImageDownload` (like `SequenceDownload`, `ToneBufferDownload`, `CompensationTableDownload` and `Auxiliary`) keeps a reference to the object it is given, as documented, so passing a temporary is undefined behaviour. A deleted rvalue overload would make that a compile error, but would also break existing code that compiles today.
 
-## Known issues
-
-These were found while writing the tests. Each bug has a `DISABLED_` test that asserts the intended behaviour; remove the prefix once it is fixed. To run them:
-`ims_unit_tests --gtest_also_run_disabled_tests --gtest_filter=*DISABLED_*`
-
-| Test | Problem |
-|---|---|
-| `ConnectionManagerTest.DISABLED_LostResponseInPipelineDoesNotShiftLaterResponses` | Responses have no sequence number. After one lost response, every later in-flight response is given to the request before it and reported as `Done()` with no error. |
-| `MemoryTransferTest.DISABLED_LostResponseDuringUploadIsReported` | Because of the above, a lost response during `MemoryUpload` returns misplaced data and `MEMORY_TRANSFER_COMPLETE`; `MEMORY_TRANSFER_ERROR` is never raised. |
-
 ## Hardware-in-the-loop
 
 `ims_hil_tests` and `ims_bench` find the system the way SDK users do (`ConnectionList::Scan`). The `_sim` builds of the same sources use the simulator instead. Environment:
@@ -118,7 +111,7 @@ These were found while writing the tests. Each bug has a `DISABLED_` test that a
 | `IMS_SIM_LATENCY_US` | Simulator only: response latency to approximate a real link. |
 | `IMS_SIM_PRESET` | Simulator only: `pro` (iMS-Pro + iMS4d, default), `lite` (iMS-Lite + iMS4) or `icsa`. |
 
-Conformance tests (`test_hil.cpp`) cover identification, response address echo, repeated and pipelined reads, reconnect cycles, and image download + verify at 1/1k/20k points. `ResponsesEchoRequestAddress` checks something we haven't confirmed yet: whether firmware echoes the request address. If it does, the library could use it to detect the response mismatch above.
+Conformance tests (`test_hil.cpp`) cover identification, response address echo, repeated and pipelined reads, reconnect cycles, and image download + verify at 1/1k/20k points. `ResponsesEchoRequestAddress` checks that the firmware echoes the request address, which the library relies on to match responses to requests.
 
 Benchmarks (`bench_hil.cpp`) measure register round trip, pipelined throughput (16/256/4096 in flight), image download time (1k/20k/100k points), and host-only serialise/parse cost. Each benchmark reconnects first, so it starts with an empty message registry.
 

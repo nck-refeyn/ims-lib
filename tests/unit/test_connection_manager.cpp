@@ -278,12 +278,11 @@ TEST_F(ConnectionManagerTest, DisconnectWithUnansweredMessageCompletes)
     EXPECT_FALSE(cm->Open());
 }
 
-// BUG: responses carry no sequence number and CM_Common hands each one to the oldest waiting
-// message. When one response in a pipeline is lost, every later response is attributed to the
-// request before it -- reported as Done() with no error -- until the lost one times out. Device
-// reports echo the request address, which could be used to detect the mismatch (the HIL suite
-// checks that real firmware does echo it). Enable once responses are validated.
-TEST_F(ConnectionManagerTest, DISABLED_LostResponseInPipelineDoesNotShiftLaterResponses)
+// Regression: responses carry no sequence number and used to be handed to the oldest waiting
+// message, so after one lost response every later one was attributed to the request before it and
+// reported as Done() with no error. Responses are now checked against the request they answer
+// (target, action and address, all echoed by the firmware); the lost one times out instead.
+TEST_F(ConnectionManagerTest, LostResponseInPipelineDoesNotShiftLaterResponses)
 {
     for (int i = 0; i < 6; i++) dev->WriteRegs(Target::Controller, static_cast<std::uint16_t>(100 + i), { static_cast<std::uint16_t>(1000 + i) });
     dev->SetHandler([this](const Request& r) -> std::optional<Response> {
@@ -304,6 +303,25 @@ TEST_F(ConnectionManagerTest, DISABLED_LostResponseInPipelineDoesNotShiftLaterRe
             EXPECT_EQ(r.Payload<std::uint16_t>(), 1000 + i) << "request " << i;
         }
     }
+    // The request whose response was lost is reported as timed out
+    ASSERT_TRUE(events.WaitFor(MessageEvents::RESPONSE_TIMED_OUT));
+    EXPECT_EQ(events.Events(MessageEvents::RESPONSE_TIMED_OUT)[0].param, h[2]);
+}
+
+// Some responses legitimately carry a different address (an image index ADD_ENTRY returns the new
+// handle there); with no later request it answers, such a response still goes to its request
+TEST_F(ConnectionManagerTest, ResponseWithOtherAddressIsAcceptedWhenNoLaterRequestMatches)
+{
+    dev->SetHandler([](const Request& r) -> std::optional<Response> {
+        if (r.addr != 9) return std::nullopt;
+        auto resp = Response::Words({ 0x1234 });
+        resp.addr = 77;
+        return resp;
+    });
+    auto resp = cm->SendMsgBlocking(RegRead(HostReport::Actions::CTRLR_REG, 9));
+    ASSERT_TRUE(resp.Done());
+    EXPECT_EQ(resp.Fields().addr, 77);
+    EXPECT_EQ(resp.Payload<std::uint16_t>(), 0x1234);
 }
 
 // Regression: completed messages are kept for autoFreeTimeout (10 s) and the parser used to walk all
@@ -360,6 +378,22 @@ TEST(Message, HandlesAreUniqueAcrossThreads)
     a.insert(a.end(), b.begin(), b.end());
     std::sort(a.begin(), a.end());
     EXPECT_EQ(std::adjacent_find(a.begin(), a.end()), a.end());
+}
+
+// A response that arrives after its request timed out must not be taken by the next request
+TEST_F(ConnectionManagerTest, LateResponseIsNotGivenToTheNextRequest)
+{
+    dev->WriteRegs(Target::Controller, 102, { 1102, 1103 });
+    dev->SetHandler([](const Request& r) -> std::optional<Response> {
+        if (r.addr == 102) std::this_thread::sleep_for(std::chrono::milliseconds(3 * kRxTimeoutMs));
+        return std::nullopt;
+    });
+    auto late = cm->SendMsg(RegRead(HostReport::Actions::CTRLR_REG, 102));
+    auto next = cm->SendMsg(RegRead(HostReport::Actions::CTRLR_REG, 103));
+    ASSERT_TRUE(WaitDone(next, 2s));
+    EXPECT_EQ(cm->Response(next).Payload<std::uint16_t>(), 1103);
+    EXPECT_EQ(cm->Response(next).Fields().addr, 103);
+    EXPECT_FALSE(cm->Response(late).Done());
 }
 
 // Disconnect() used to clear DeviceIsOpen and notify the sender and memory transfer threads without

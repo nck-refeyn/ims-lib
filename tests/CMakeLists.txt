@@ -93,6 +93,8 @@ ims_add_test_executable(ims_unit_tests
     unit/test_ims_system.cpp
     unit/test_signal_path.cpp
     unit/test_image_download.cpp
+    unit/test_link_corruption.cpp
+    unit/test_response_matching.cpp
     unit/test_eeprom.cpp
 )
 target_include_directories(ims_unit_tests PRIVATE unit)

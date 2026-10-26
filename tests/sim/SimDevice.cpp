@@ -121,6 +121,7 @@ namespace sim {
         dev->SetUnsupported(HostReport::Actions::AOD_TEMP);
         dev->SetUnsupported(HostReport::Actions::RFA_TEMP);
         dev->SetPhantomImageSlot(true);
+        dev->SetFirmwareAddressEcho(true);
         return dev;
     }
 
@@ -176,6 +177,12 @@ namespace sim {
     {
         std::lock_guard<std::mutex> lk(m_mutex);
         m_phantomSlot = phantom;
+    }
+
+    void SimDevice::SetFirmwareAddressEcho(bool on)
+    {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        m_firmwareEcho = on;
     }
 
     std::vector<ImageEntry> SimDevice::ImageTable() const
@@ -353,7 +360,15 @@ namespace sim {
         else if (fault == Fault::Alarm) st |= status::Alarm;
 
         if (fault == Fault::Garbage) QueueLocked({ 0xEE });
-        auto bytes = Encode(resp_id, static_cast<std::uint8_t>(st | action_bits), 0, resp->addr.value_or(r.addr), resp->payload);
+        std::uint16_t addr = resp->addr.value_or(r.addr);
+        if (m_firmwareEcho && !resp->addr) {
+            if (!(st & status::DataOk))
+                addr = m_lastResponseAddr;
+            else if (!r.read && r.action == HostReport::Actions::CTRLR_REG)
+                addr = static_cast<std::uint16_t>(r.addr + r.len / 2);
+        }
+        m_lastResponseAddr = addr;
+        auto bytes = Encode(resp_id, static_cast<std::uint8_t>(st | action_bits), 0, addr, resp->payload);
         if (fault == Fault::CorruptCrc) bytes.back() ^= 0xFF;
         QueueLocked(std::move(bytes));
     }
@@ -477,8 +492,31 @@ namespace sim {
         return b;
     }
 
+    void SimDevice::InjectRaw(const std::vector<std::uint8_t>& bytes)
+    {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        QueueLocked(bytes);
+    }
+
+    void SimDevice::DropOutput(std::size_t skip, std::size_t count)
+    {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        m_dropSkip = skip;
+        m_dropCount = count;
+    }
+
     void SimDevice::QueueLocked(std::vector<std::uint8_t> bytes)
     {
+        if (m_dropCount) {
+            std::vector<std::uint8_t> kept;
+            for (auto b : bytes) {
+                if (m_dropSkip) { m_dropSkip--; kept.push_back(b); }
+                else if (m_dropCount) m_dropCount--;
+                else kept.push_back(b);
+            }
+            bytes.swap(kept);
+            if (bytes.empty()) return;
+        }
         auto ready = Clock::now() + m_latency;
         // Preserve ordering even if latency was reduced between responses
         if (!m_tx.empty()) ready = std::max(ready, m_tx.back().ready);

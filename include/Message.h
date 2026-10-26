@@ -74,6 +74,11 @@ namespace iMS
 		// Return the Received Report to allow user to access data
 		DeviceReport Response() const;
 
+		// Fields of the report sent, for matching responses to requests
+		const ReportFields& RequestFields() const;
+		// Give this message a response that was parsed into another one
+		void AssignResponse(const DeviceReport& resp);
+
 	private:
 		static const char * StatusEnumStrings[] ;
 
