@@ -420,7 +420,7 @@ namespace iMS
 
             // 14-bit phase field
             double phs_scaled = (phase * 16383.0) / 360.0;
-            std::uint16_t phs_int = static_cast<std::uint8_t>(std::floor(phs_scaled));
+            std::uint16_t phs_int = static_cast<std::uint16_t>(std::floor(phs_scaled));
 
             HostReport *iorpt;
 
