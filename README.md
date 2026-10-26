@@ -330,6 +330,20 @@ The trigger commit is made on imslib-python's `master`.
 
 ---
 
+# Testing
+
+Unit tests run against a simulated iMS system, so no hardware is needed:
+
+```bash
+cmake -S . -B build/tests -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DIMSLIB_BUILD_TESTS=ON -DIMSLIB_BUILD_HIL=ON
+cmake --build build/tests
+ctest --test-dir build/tests --output-on-failure
+```
+
+Hardware-in-the-loop tests and benchmarks (`ims_hil_tests`, `ims_bench`) run against a connected system. See [tests/README.md](tests/README.md) for the simulator, the HIL rig setup and benchmark baselines.
+
+---
+
 # Example Integration: iMS Hardware Server
 
 The iMS Hardware Server integrates this repository as a Git submodule and compiles it directly into the application.

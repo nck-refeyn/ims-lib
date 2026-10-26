@@ -227,6 +227,15 @@ set_target_properties(ftd2xx PROPERTIES
 target_link_libraries(${IMS_TARGET_NAME} PRIVATE ftd2xx)
 endif()
 
+## Tests
+option(IMSLIB_BUILD_TESTS "Build unit tests (simulated hardware)" OFF)
+option(IMSLIB_BUILD_HIL "Build hardware-in-the-loop tests and benchmarks" OFF)
+
+if(IMSLIB_BUILD_TESTS OR IMSLIB_BUILD_HIL)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
 ## Documentation
 option(BUILD_DOCS "Build SDK documentation" OFF)
 

@@ -1,4 +1,5 @@
-# Builds the library on Windows (MSVC) and Linux.
+# Builds the library on Windows (MSVC) and Linux, and runs the unit tests plus the simulator
+# flavour of the HIL suite.
 # No hardware needed; runs on GitHub-hosted runners.
 #
 # A v* tag (e.g. v2.0.10 or v2.0.10-rc1) also creates a GitHub Release with the built libraries
@@ -68,10 +69,29 @@ jobs:
 
       - name: Configure
         # Quoted: PowerShell splits an unquoted -D argument at the '.'
-        run: cmake -S . -B build -A ${{ matrix.platform }} "-DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake"
+        run: cmake -S . -B build -A ${{ matrix.platform }} "-DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake" -DIMSLIB_BUILD_TESTS=ON -DIMSLIB_BUILD_HIL=ON
 
       - name: Build
         run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure -j 4 --output-junit test-results.xml
+
+      # Shared runners are too noisy to gate on; this only checks the benchmarks still run and
+      # keeps a record of host-side overhead
+      - name: Benchmarks (simulator, informational)
+        run: >-
+          build/tests/hil/Release/ims_bench_sim.exe
+          --benchmark_filter='BM_(RegisterReadLatency|PipelinedReads|SerializeHostReport|ParseDeviceReport)'
+          --benchmark_out=build/bench-sim.json --benchmark_out_format=json
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-${{ matrix.arch }}-results
+          path: |
+            build/test-results.xml
+            build/bench-sim.json
 
       # The library's own install rules: DLL in bin/, import library in lib/, public headers in include/
       - name: Install
@@ -96,10 +116,19 @@ jobs:
           sudo apt-get install -y --no-install-recommends ninja-build libboost-regex-dev libboost-log-dev libxml2-dev xxd
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DIMSLIB_BUILD_TESTS=ON -DIMSLIB_BUILD_HIL=ON
 
       - name: Build
         run: cmake --build build -j 4
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j 4 --output-junit test-results.xml
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-results
+          path: build/test-results.xml
 
       - name: Install
         run: cmake --install build --prefix install
