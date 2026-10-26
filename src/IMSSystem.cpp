@@ -858,9 +858,13 @@ namespace iMS
 		major((data.size() == 4) ? (data[0] >> 8) & 0xFF : -1),
 		minor((data.size() == 4) ? (data[0] & 0xFF) : -1),
 		revision((data.size() == 4) ? data[1] : -1),
-		build_date({ 0, (data[3] & 0xFF), ((data[3] >> 8) & 0xFF), (data[2] & 0x1F),
-		((data[2] >> 5) & 0xF)-1, 100+((data[2] >> 9) & 0x7F), 1, 1, 0 })
-	{}
+		build_date{}
+	{
+		// The build date needs all four words; reading them from a shorter vector is undefined
+		if (data.size() >= 4)
+			build_date = { 0, (data[3] & 0xFF), ((data[3] >> 8) & 0xFF), (data[2] & 0x1F),
+				((data[2] >> 5) & 0xF) - 1, 100 + ((data[2] >> 9) & 0x7F), 1, 1, 0 };
+	}
 
 	std::ostream& operator <<(std::ostream& stream, const FWVersion& ver) {
 		char time[100];//"%a %b %d %R %Y
