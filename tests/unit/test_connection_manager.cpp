@@ -206,6 +206,18 @@ TEST_F(ConnectionManagerTest, InterruptWithTwoWords)
     EXPECT_EQ(e.param2, 2);
 }
 
+// Regression: interrupts with more than two words of payload were queued but never triggered,
+// because the dispatch compared against the wrong payload type
+TEST_F(ConnectionManagerTest, InterruptWithDataPayloadIsDelivered)
+{
+    const std::vector<std::uint8_t> data = { 1, 2, 3, 4, 5, 6 };
+    dev->RaiseInterrupt(3, data);
+    ASSERT_TRUE(events.WaitFor(MessageEvents::INTERRUPT_RECEIVED));
+    auto e = events.Events(MessageEvents::INTERRUPT_RECEIVED)[0];
+    EXPECT_EQ(e.param, 3 << 16);
+    EXPECT_EQ(e.data, data);
+}
+
 TEST_F(ConnectionManagerTest, InterruptBetweenResponsesDoesNotDisturbThem)
 {
     for (int i = 0; i < 10; i++) {
