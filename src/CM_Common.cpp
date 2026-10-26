@@ -339,7 +339,7 @@ namespace iMS {
                     mMsgEvent.Trigger<int>(this, ev.type, arg);
                 else if constexpr (std::is_same_v<T, std::pair<int, int>>)
                     mMsgEvent.Trigger<int, int>(this, ev.type, arg.first, arg.second);
-                else if constexpr (std::is_same_v<T, std::vector<std::uint8_t>>)
+                else if constexpr (std::is_same_v<T, std::pair<int, std::vector<std::uint8_t>>>)
                     mMsgEvent.Trigger<int,std::vector<uint8_t>>(this, ev.type, arg.first, arg.second);
             }, ev.payload);
         }
