@@ -9,6 +9,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <thread>
+
 using namespace iMS;
 using namespace iMS::sim;
 using namespace std::chrono_literals;
@@ -312,4 +315,37 @@ TEST_F(ConnectionManagerTest, DISABLED_RoundTripCostDoesNotGrowWithMessageHistor
     const auto last = block();
     EXPECT_LT(last, first * 3) << "first 500: " << std::chrono::duration_cast<std::chrono::milliseconds>(first).count()
                                << " ms, after 2500 more: " << std::chrono::duration_cast<std::chrono::milliseconds>(last).count() << " ms";
+}
+
+// Regression: transports mark a message SENT after writing it, by which time the parser may already
+// have completed it; setStatus used to let that overwrite RX_OK, leaving the message to time out
+TEST(Message, CompletedStatusIsNotOverwrittenByLateSent)
+{
+    Message m(RegRead(HostReport::Actions::CTRLR_REG, 0));
+    m.setStatus(Message::Status::RX_OK);
+    m.setStatus(Message::Status::SENT);
+    EXPECT_EQ(m.getStatus(), Message::Status::RX_OK);
+    EXPECT_TRUE(m.waitForCompletion(std::chrono::milliseconds(0)));
+}
+
+TEST(Message, SendTimeIsSetWhenSent)
+{
+    Message m(RegRead(HostReport::Actions::CTRLR_REG, 0));
+    m.setStatus(Message::Status::SENT);
+    EXPECT_LT(m.TimeElapsed(), std::chrono::milliseconds(1000));
+}
+
+// Regression: the handle counter was a plain int, incremented from several threads
+TEST(Message, HandlesAreUniqueAcrossThreads)
+{
+    std::vector<MessageHandle> a, b;
+    auto make = [](std::vector<MessageHandle>& out) {
+        for (int i = 0; i < 20000; i++) out.push_back(Message(HostReport()).getMessageHandle());
+    };
+    std::thread t1(make, std::ref(a)), t2(make, std::ref(b));
+    t1.join();
+    t2.join();
+    a.insert(a.end(), b.begin(), b.end());
+    std::sort(a.begin(), a.end());
+    EXPECT_EQ(std::adjacent_find(a.begin(), a.end()), a.end());
 }

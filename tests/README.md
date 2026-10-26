@@ -69,6 +69,8 @@ Each fix has a regression test, named in the second column.
 | `ImageDownload`, `SequenceDownload`, `ToneBufferDownload` and `CompensationTableDownload` declare their worker threads before the data they use, so their destructors freed the data before joining the workers. Destroying an `ImageDownload` on `VERIFY_SUCCESS` corrupted the heap (`0xc0000374`) in 4 of 5 runs. Workers are now stopped first. | `ImageDownloadTest.DestroyingDownloaderRightAfterVerifyIsSafe` |
 | Each `ImageDownload` wrote `FPIFormat << 1` instead of setting bit 1. Bit 0 is read-only 1, so the register filled with ones (0x0001 → 0xFFFF over ~16 downloads) until a power cycle. Seen on iCSA2510 and iCSA2605. On iCSA2605 the RF stayed correct with the register saturated. It now writes `CTRLR_REG_FPIFormat_MSB_Enable`, which also repairs a corrupted register. | `ICSAImageTest.RepeatedDownloadsOnlySetMsbEnableBit` |
 | Interrupts carrying more than two words were queued but never triggered: the dispatch compared against the wrong payload type. | `ConnectionManagerTest.InterruptWithDataPayloadIsDelivered` |
+| `Message::setStatus` could move a completed message back to `SENT` (transports mark messages sent after writing them, by which time they can be complete). It also notified waiters without holding their mutex, so `SendMsgBlocking` could miss its wakeup. | `Message.CompletedStatusIsNotOverwrittenByLateSent` |
+| Message handles came from a plain `int` incremented on several threads; a duplicate handle silently replaced another in-flight message. | `Message.HandlesAreUniqueAcrossThreads` |
 | `UpdatePhaseTuning` cast its 14-bit phase word through `uint8_t`. | `SignalPathTest.PhaseTuningUsesFull14BitRange` |
 | `HostReport` fell through from `FW_UPGRADE`/`CTRLR_FW_UPGRADE` into `WAVE_SHAPING`, so their default `len` was always 2. iCSA firmware returns 4 bytes regardless, so it was masked there. | `FirmwareUpgrade/HostReportDefaultLength.*` |
 | `FWVersion` read four words from a vector of any size. | `FWVersion.WrongSizeYieldsInvalidVersion` |
@@ -93,7 +95,6 @@ These were found while writing the tests. Each bug has a `DISABLED_` test that a
 
 Not covered by a test:
 
-- `Message::setStatus` notifies without holding `m_waitMutex`, so the untimed `waitForCompletion()` used by `SendMsgBlocking` can miss its wakeup.
 - `DeviceReport::Done()` is also true for CRC errors, and most callers check only `Done()`.
 
 ## Hardware-in-the-loop

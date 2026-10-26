@@ -120,10 +120,11 @@ namespace sim {
                 m_queue.pop();
             }
 
-            // Mark as sent before the bytes reach the device: the simulated device can answer
-            // before HostWrite returns, and the parser must not see the message as UNSENT then
-            m->setStatus(Message::Status::SENT);
+            // Serialise first, as the hardware transports do: the parser may log (and so serialise)
+            // any message it sees as SENT. Mark it sent before the bytes reach the device, which
+            // can answer before HostWrite returns.
             const std::vector<std::uint8_t>& b = m->SerialStream();
+            m->setStatus(Message::Status::SENT);
             m_device->HostWrite(b.data(), b.size());
         }
     }

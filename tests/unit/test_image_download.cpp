@@ -205,9 +205,7 @@ TEST_F(ICSAImageTest, RepeatedDownloadsOnlySetMsbEnableBit)
 // so its destructor used to free those first and join the workers last. The verify worker keeps
 // running after it triggers VERIFY_SUCCESS, so destroying the downloader on that event corrupted
 // the heap (0xc0000374, about 4 runs in 5). The workers are now stopped first.
-// Disabled until message handles are unique: a duplicate handle gives a response to the wrong
-// request, so about 1 run in 8 of these 20000-point verifies fails. Enable with that fix.
-TEST_F(ImageDownloadTest, DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe)
+TEST_F(ImageDownloadTest, DestroyingDownloaderRightAfterVerifyIsSafe)
 {
     for (int i = 0; i < 5; i++) {
         const auto img = Ramp(20000);
