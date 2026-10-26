@@ -75,10 +75,7 @@ TEST_F(ImageDownloadTest, DownloadRegistersImageAndFillsMemory)
     Unsubscribe(dl);
 }
 
-// BUG: destroys the ImageDownload right after VERIFY_SUCCESS, while the verify worker is still
-// clearing its buffers, so it can corrupt the heap. See DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe.
-// Enable once fixed.
-TEST_F(ImageDownloadTest, DISABLED_VerifyPassesOnIntactMemory)
+TEST_F(ImageDownloadTest, VerifyPassesOnIntactMemory)
 {
     const auto img = Ramp(500); // ImageDownload keeps a reference to it
     ImageDownload dl(ims(), img);
@@ -153,9 +150,7 @@ TEST_F(ICSAImageTest, PowerUpTableSlotIsSkipped)
     EXPECT_TRUE(ims()->Ctlr().ImgTable().empty());
 }
 
-// BUG: verifies, then destroys the ImageDownload as above. Enable once
-// DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe is fixed.
-TEST_F(ICSAImageTest, DISABLED_DownloadUsesMsbFirstModeAndVerifies)
+TEST_F(ICSAImageTest, DownloadUsesMsbFirstModeAndVerifies)
 {
     const auto img = Ramp(1000);
     ASSERT_TRUE(Download(img, true));
@@ -206,12 +201,12 @@ TEST_F(ICSAImageTest, RepeatedDownloadsOnlySetMsbEnableBit)
     EXPECT_EQ(dev().Reg(Target::Controller, CTRLR_REG_FPIFormat), 0x0003);
 }
 
-// BUG: ImageDownload::Impl declares its worker threads before the image buffers and event trigger,
-// so ~ImageDownload frees those first and joins the workers last. The verify worker keeps running
-// after it triggers VERIFY_SUCCESS (it clears its buffers), so a caller that destroys the
-// ImageDownload on that event frees memory the worker is still using: heap corruption
-// (0xc0000374) about 40% of the time with a 20000-point image. Stopping the workers at the start of
-// ~Impl() fixes it. A failure here crashes the test binary. Enable once fixed.
+// Regression: ImageDownload::Impl declares its worker threads before the buffers and event trigger,
+// so its destructor used to free those first and join the workers last. The verify worker keeps
+// running after it triggers VERIFY_SUCCESS, so destroying the downloader on that event corrupted
+// the heap (0xc0000374, about 4 runs in 5). The workers are now stopped first.
+// Disabled until message handles are unique: a duplicate handle gives a response to the wrong
+// request, so about 1 run in 8 of these 20000-point verifies fails. Enable with that fix.
 TEST_F(ImageDownloadTest, DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe)
 {
     for (int i = 0; i < 5; i++) {
@@ -221,9 +216,10 @@ TEST_F(ImageDownloadTest, DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe)
             ImageDownload dl(ims(), img);
             for (int e = 0; e < E::Count; e++) dl.ImageDownloadEventSubscribe(e, &rec);
             ASSERT_TRUE(dl.StartDownload());
-            ASSERT_EQ(rec.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 30s), E::DOWNLOAD_FINISHED);
+            ASSERT_EQ(rec.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 30s), E::DOWNLOAD_FINISHED)
+                << "iteration " << i << ", " << dev().ImageTable().size() << " images on the controller";
             ASSERT_TRUE(dl.StartVerify());
-            ASSERT_EQ(rec.WaitForAny({ E::VERIFY_SUCCESS, E::VERIFY_FAIL }, 30s), E::VERIFY_SUCCESS);
+            ASSERT_EQ(rec.WaitForAny({ E::VERIFY_SUCCESS, E::VERIFY_FAIL }, 30s), E::VERIFY_SUCCESS) << "iteration " << i;
             // Destroyed here, as soon as the result is known
         }
         ImageTableViewer(ims()).Clear();

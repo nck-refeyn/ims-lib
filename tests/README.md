@@ -68,6 +68,7 @@ Each fix has a regression test, named in the second column.
 
 | Problem | Regression test |
 |---|---|
+| `ImageDownload`, `SequenceDownload`, `ToneBufferDownload` and `CompensationTableDownload` declare their worker threads before the data they use, so their destructors freed the data before joining the workers. Destroying an `ImageDownload` on `VERIFY_SUCCESS` corrupted the heap (`0xc0000374`) in 4 of 5 runs. Workers are now stopped first. | `ImageDownloadTest.DestroyingDownloaderRightAfterVerifyIsSafe` |
 | Each `ImageDownload` wrote `FPIFormat << 1` instead of setting bit 1. Bit 0 is read-only 1, so the register filled with ones (0x0001 → 0xFFFF over ~16 downloads) until a power cycle. Seen on iCSA2510 and iCSA2605. On iCSA2605 the RF stayed correct with the register saturated. It now writes `CTRLR_REG_FPIFormat_MSB_Enable`, which also repairs a corrupted register. | `ICSAImageTest.RepeatedDownloadsOnlySetMsbEnableBit` |
 | `UpdatePhaseTuning` cast its 14-bit phase word through `uint8_t`. | `SignalPathTest.PhaseTuningUsesFull14BitRange` |
 | `HostReport` fell through from `FW_UPGRADE`/`CTRLR_FW_UPGRADE` into `WAVE_SHAPING`, so their default `len` was always 2. iCSA firmware returns 4 bytes regardless, so it was masked there. | `FirmwareUpgrade/HostReportDefaultLength.*` |
@@ -89,7 +90,6 @@ These were found while writing the tests. Each bug has a `DISABLED_` test that a
 | `MemoryTransferTest.DISABLED_LostResponseDuringUploadIsReported` | Because of the above, a lost response during `MemoryUpload` returns misplaced data and `MEMORY_TRANSFER_COMPLETE`; `MEMORY_TRANSFER_ERROR` is never raised. |
 | `ConnectionManagerTest.DISABLED_RoundTripCostDoesNotGrowWithMessageHistory` | Completed messages stay in the registry for 10 s and are rescanned on every parser pass. Round-trip cost grows with recent traffic (~130 µs → ~1.1 ms after 3000 messages on a zero-latency link), and `CM_Common::MemoryTransfer` becomes quadratic. |
 | `MemoryTransferTest.DISABLED_TransactionsBeyond64kUseContextForUpperAddressBits` | `CM_Common::MemoryTransfer` dereferences a message before checking it for null, so a message freed before it is harvested crashes it. The test frees completed messages after 1 s to avoid the quadratic cost above, which on a slow machine (the 32-bit Windows CI runner) can happen mid-transfer. |
-| `ImageDownloadTest.DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe` | `ImageDownload::Impl` declares its worker threads before its buffers, so the destructor frees the buffers before joining the workers. The verify worker is still running after it fires `VERIFY_SUCCESS`, so destroying the downloader on that event corrupts the heap (`0xc0000374`; 4 of 5 runs). Fix: stop the workers at the start of `~Impl()`. |
 
 Not covered by a test:
 

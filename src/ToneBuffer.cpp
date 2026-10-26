@@ -218,6 +218,10 @@ namespace iMS {
 	}
 
 	ToneBufferDownload::Impl::~Impl() {
+		// Join the workers before the lists and event trigger they use are destroyed
+		downloadWorker.stop();
+		rxWorker.stop();
+
 		// Unsubscribe listener
         with_locked(m_ims, [this](std::shared_ptr<IMSSystem> ims) {         
             auto conn = ims->Connection();
