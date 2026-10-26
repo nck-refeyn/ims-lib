@@ -1,10 +1,14 @@
 # Builds the library on Windows (MSVC) and Linux.
 # No hardware needed; runs on GitHub-hosted runners.
+#
+# A v* tag (e.g. v2.0.10 or v2.0.10-rc1) also creates a GitHub Release with the built libraries
+# and has imslib-python build wheels against the tag (see "Releases" in README.md).
 name: CI
 
 on:
   push:
     branches: [master]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -110,3 +114,85 @@ jobs:
           name: imslib-linux-x86_64
           path: install/
           if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    if: github.ref_type == 'tag'
+    needs: [windows-msvc, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # v<version> is a release, v<version>-<label> a pre-release; anything else is a mistake
+      - name: Check the tag matches LibVersion.h
+        id: version
+        run: |
+          define() { sed -nE "s/^#define IMS_API_$1 +([0-9]+).*/\1/p" include/LibVersion.h; }
+          version="$(define MAJOR).$(define MINOR).$(define PATCH)"
+          re="^v${version//./[.]}([-_.+].+)?$"
+          if [[ ! "$TAG" =~ $re ]]; then
+            echo "::error::Tag $TAG does not match the library version $version in include/LibVersion.h"
+            exit 1
+          fi
+          echo "prerelease=$([[ -n "${BASH_REMATCH[1]}" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Zip the libraries
+        working-directory: dist
+        run: for d in */; do (cd "$d" && zip -qr "../${d%/}-$TAG.zip" .); done
+
+      # Uploads again over an existing release, so the job can be re-run
+      - name: Create release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.zip --clobber
+          else
+            gh release create "$TAG" dist/*.zip --verify-tag --title "$TAG" --generate-notes \
+              ${{ steps.version.outputs.prerelease == 'true' && '--prerelease' || '' }}
+          fi
+
+  # Pushes a tag ims-lib-<tag> to imslib-python, on a commit that moves its ims-lib submodule to this
+  # tag; that push starts imslib-python's wheel build. Uses a write deploy key on imslib-python, as
+  # GITHUB_TOKEN can neither reach another repository nor start workflows.
+  python-wheels:
+    name: Trigger imslib-python wheels
+    needs: release
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.ref_name }}
+      # Branch of imslib-python to build from; set the variable to test a branch before merging
+      BRANCH: ${{ vars.IMSLIB_PYTHON_BRANCH || 'master' }}
+    steps:
+      - name: Push ims-lib-${{ github.ref_name }} to imslib-python
+        env:
+          DEPLOY_KEY: ${{ secrets.IMSLIB_PYTHON_DEPLOY_KEY }}
+        run: |
+          key="$RUNNER_TEMP/imslib_python_key"
+          known_hosts="$RUNNER_TEMP/known_hosts"
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          # github.com's published host key
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$known_hosts"
+
+          git clone --depth 1 --branch "$BRANCH" git@github.com:refeyn/imslib-python.git imslib-python
+          cd imslib-python
+          if git ls-remote --exit-code --tags origin "refs/tags/ims-lib-$TAG" > /dev/null; then
+            echo "::notice::imslib-python already has ims-lib-$TAG; re-run its workflow to rebuild"
+            exit 0
+          fi
+          # Point the submodule at the tagged commit without fetching it
+          git update-index --cacheinfo "160000,$GITHUB_SHA,ims-lib"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit --allow-empty -m "Build wheels for ims-lib $TAG"
+          git tag "ims-lib-$TAG"
+          git push origin "refs/tags/ims-lib-$TAG"

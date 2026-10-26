@@ -322,6 +322,25 @@ The structure supports multi-architecture staging for deployment packaging.
 
 ---
 
+# Releases
+
+Pushing a tag `v<version>` (a release) or `v<version>-<label>` (a pre-release, e.g. `v2.0.10-rc1`) runs `.github/workflows/ci.yml`, which:
+
+1. Checks the tag against `IMS_API_MAJOR/MINOR/PATCH` in `include/LibVersion.h`, so bump the version before tagging.
+2. Creates a GitHub Release with the Windows (x86_64, x86) and Linux libraries as zips.
+3. Pushes a tag `ims-lib-<tag>` to [imslib-python](https://github.com/refeyn/imslib-python), on a commit that moves its `ims-lib` submodule to this tag. That starts its wheel build, which publishes the wheels as an imslib-python GitHub Release.
+
+Step 3 needs two deploy keys, since `GITHUB_TOKEN` cannot reach another repository:
+
+| Used for | Public half | Private half (Actions secret) |
+|---|---|---|
+| This repository's CI pushes the trigger tag to imslib-python | imslib-python deploy key, write access | `IMSLIB_PYTHON_DEPLOY_KEY` in ims-lib |
+| imslib-python's CI fetches this repository as its submodule | ims-lib deploy key, read-only | `IMS_LIB_DEPLOY_KEY` in imslib-python |
+
+The trigger commit is made on imslib-python's `master`. To test an imslib-python branch first, set the ims-lib Actions variable `IMSLIB_PYTHON_BRANCH` to it.
+
+---
+
 # Example Integration: iMS Hardware Server
 
 The iMS Hardware Server integrates this repository as a Git submodule and compiles it directly into the application.
