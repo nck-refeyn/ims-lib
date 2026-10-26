@@ -456,9 +456,7 @@ namespace iMS {
 		if (DeviceIsOpen)
 		{
 			if (pImpl->fp == NULL) {
-				DeviceIsOpen = false;
-                m_txcond.notify_all();
-                m_tfrcond.notify_one();
+				SignalClosed();
                 SetEvent(pImpl->hShutdown);
 				return;
 			}
@@ -505,9 +503,7 @@ namespace iMS {
 			} while (1);
 
 			// Stop Threads
-			DeviceIsOpen = false;  // must set this to cancel threads
-            m_txcond.notify_all();
-            m_tfrcond.notify_one();
+			SignalClosed();  // must set this to cancel threads
             SetEvent(pImpl->hShutdown);
 
 			senderThread.join();

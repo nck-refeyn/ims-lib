@@ -436,8 +436,7 @@ namespace iMS {
 			} while (1);
 
 			// Stop Threads
-			DeviceIsOpen = false;  // must set this to cancel threads
-            m_txcond.notify_all();
+			SignalClosed();  // must set this to cancel threads
 			senderThread.join();
 			receiverThread.join();
 			parserThread.join();

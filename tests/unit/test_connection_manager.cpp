@@ -349,3 +349,18 @@ TEST(Message, HandlesAreUniqueAcrossThreads)
     std::sort(a.begin(), a.end());
     EXPECT_EQ(std::adjacent_find(a.begin(), a.end()), a.end());
 }
+
+// Disconnect() used to clear DeviceIsOpen and notify the sender and memory transfer threads without
+// holding the mutexes they wait on, so a thread that had just found the connection open could start
+// waiting after the notification and never be joined. The window is too narrow to hit on demand
+// (this passes against the old code too); it is kept as a stress check on the shutdown path.
+TEST(ConnectionManagerCycles, RapidConnectDisconnectDoesNotHang)
+{
+    auto cm = CM_Sim::Create(SimDevice::iMSProWith_iMS4d());
+    cm->SetTimeouts(100, kRxTimeoutMs, 10000, 100);
+    for (int i = 0; i < 300; i++) {
+        cm->Connect("SIM0");
+        cm->Disconnect();
+    }
+    EXPECT_FALSE(cm->Open());
+}

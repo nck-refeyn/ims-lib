@@ -122,10 +122,12 @@ namespace iMS {
             m_cv.notify_all();
         }
 
+        // Re-evaluates the predicate periodically as well as on notification, so a condition that
+        // changes without a notification (e.g. a connection closing) cannot block the caller forever
         template<typename Pred>
         void waitUntil(Pred predicate) {
             std::unique_lock<std::mutex> lock(m_waitMutex);
-            m_cv.wait(lock, predicate);
+            while (!predicate()) m_cv.wait_for(lock, std::chrono::milliseconds(50));
         }
     private:
         mutable std::mutex m_mutex;

@@ -160,6 +160,11 @@ namespace iMS {
 
         std::shared_ptr<IConnectionSettings> connSettings;
 
+        // Clears DeviceIsOpen and wakes the threads waiting on CM_Common's condition variables, for
+        // Disconnect(). Notifying without their mutexes could let a thread that has just found the
+        // connection open start waiting after the notification, and never be joined.
+        void SignalClosed();
+
     private:
     	template <typename T, typename T2 = int>
         struct triggerEvents

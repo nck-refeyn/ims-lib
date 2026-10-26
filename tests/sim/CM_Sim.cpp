@@ -88,10 +88,7 @@ namespace sim {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
 
-        DeviceIsOpen = false;
-        m_txcond.notify_all();
-        m_tfrcond.notify_all();
-        m_rxcond.notify_all();
+        SignalClosed();
         m_device->Wake();
 
         senderThread.join();

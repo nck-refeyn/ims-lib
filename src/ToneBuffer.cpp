@@ -493,7 +493,9 @@ namespace iMS {
 	{
 		while (true) {
     		std::unique_lock<std::mutex> lck{ mtx };
-            cond.wait(lck);
+            // Wait on a predicate: a notification sent before this wait (stop() during start-up,
+            // or a response queued while the lists were being processed) would otherwise be lost
+            cond.wait(lck, [&] { return !running || !rxok_list.empty() || !rxerr_list.empty(); });
 
             // Allow thread to terminate 
 			if (!running) break;
