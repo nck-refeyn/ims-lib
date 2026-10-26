@@ -169,23 +169,17 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ github.ref_name }}
-      # Branch of imslib-python to build from; set the variable to test a branch before merging
-      BRANCH: ${{ vars.IMSLIB_PYTHON_BRANCH || 'master' }}
     steps:
-      - name: Push ims-lib-${{ github.ref_name }} to imslib-python
-        env:
-          DEPLOY_KEY: ${{ secrets.IMSLIB_PYTHON_DEPLOY_KEY }}
-        run: |
-          key="$RUNNER_TEMP/imslib_python_key"
-          known_hosts="$RUNNER_TEMP/known_hosts"
-          printf '%s\n' "$DEPLOY_KEY" > "$key"
-          chmod 600 "$key"
-          # github.com's published host key
-          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$known_hosts"
-          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$known_hosts"
+      # Kept configured with the key, for the push below
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/imslib-python
+          # Set the variable to test an imslib-python branch before merging it
+          ref: ${{ vars.IMSLIB_PYTHON_BRANCH || 'master' }}
+          ssh-key: ${{ secrets.IMSLIB_PYTHON_DEPLOY_KEY }}
 
-          git clone --depth 1 --branch "$BRANCH" git@github.com:refeyn/imslib-python.git imslib-python
-          cd imslib-python
+      - name: Push ims-lib-${{ github.ref_name }} to imslib-python
+        run: |
           if git ls-remote --exit-code --tags origin "refs/tags/ims-lib-$TAG" > /dev/null; then
             echo "::notice::imslib-python already has ims-lib-$TAG; re-run its workflow to rebuild"
             exit 0
