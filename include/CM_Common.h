@@ -212,13 +212,18 @@ namespace iMS {
 		std::vector<triggerEvents<int, std::vector<std::uint8_t>>> m_Vevents;
         std::vector<PendingEvent> m_PendingEvents;
 
-        void HandleInterrupts();
-        void HandleMessage(const std::shared_ptr<Message>& m);
-        char HandleMessageParse(std::shared_ptr<Message> m);
         void HandleResponseDone(std::shared_ptr<Message> m);
         bool HandleUnexpectedChar(std::shared_ptr<Message> m, char c);
         void HandleTimeoutsAndCleanup();
         void TriggerPendingEvents();
+        // Receive path: frames reports out of m_glblRx (resynchronising past damaged bytes), then
+        // gives each to the request it answers
+        void ProcessReceivedReports();
+        void DispatchReport(const DeviceReport& rpt);
+        void DiscardRxByte();
+        void HandleBufferedMessage(const std::shared_ptr<Message>& m);
+        std::chrono::steady_clock::time_point m_lastRxBytes{};
+        bool m_discardingRx = false;
         std::chrono::steady_clock::time_point m_lastCleanup{};
 	};
 

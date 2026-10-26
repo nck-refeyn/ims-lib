@@ -17,7 +17,7 @@
 //   - Every other action is a byte-addressed memory per action (offset = addr).
 //   - Reads return `len` bytes of current state (zero if never written).
 //   - Writes store the payload and return an empty DATA_OK response.
-//   - Responses echo the request address; their context is always 0.
+//   - Responses echo the request address (unless SetFirmwareAddressEcho); their context is always 0.
 // Tests customise behaviour with SetHandler(), InjectFault() and the presets.
 
 #ifndef IMS_SIM_DEVICE_H__
@@ -132,6 +132,9 @@ namespace sim {
         // After power-up an iCSA reports one table slot whose entry can't be read; it goes away
         // with the first ADD_ENTRY or ERASE_ALL
         void SetPhantomImageSlot(bool phantom);
+        // Address responses as iCSA firmware v1.1.30 does: a CTRLR_REG write is answered with the
+        // address after the last register written, an error with the address of the previous response
+        void SetFirmwareAddressEcho(bool on);
         // Applies to the next `count` requests that are answered
         void InjectFault(Fault f, int count = 1);
         // Delay between receiving a request and its answer becoming readable
@@ -140,6 +143,11 @@ namespace sim {
         void SetChunkSize(std::size_t bytes);
         // Push an unsolicited interrupt report (ID 73) to the host
         void RaiseInterrupt(std::uint16_t addr, const std::vector<std::uint8_t>& payload);
+        // Link faults seen on an FTDI-connected iCSA. InjectRaw queues bytes into the output now (from a
+        // handler: ahead of the response to the request being handled). DropOutput lets `skip` more
+        // output bytes through, then discards the next `count`, as a lost USB packet would.
+        void InjectRaw(const std::vector<std::uint8_t>& bytes);
+        void DropOutput(std::size_t skip, std::size_t count);
 
         // --- Inspection -----------------------------------------------------
         std::vector<Request> Requests() const;
@@ -182,6 +190,8 @@ namespace sim {
         std::vector<ImageEntry> m_images;
         std::uint32_t m_nextImageAddress = 0;
         bool m_phantomSlot = false;
+        bool m_firmwareEcho = false;
+        std::uint16_t m_lastResponseAddr = 0;
 
         // Shared so the unlocked call in ProcessFrame runs the stored handler, state and all
         std::shared_ptr<Handler> m_handler;
@@ -193,6 +203,8 @@ namespace sim {
         std::deque<Outbound> m_tx;
         std::size_t m_txOffset = 0;
         bool m_wake = false;
+        std::size_t m_dropSkip = 0;
+        std::size_t m_dropCount = 0;
 
         std::vector<Request> m_log;
         std::size_t m_rejected = 0;

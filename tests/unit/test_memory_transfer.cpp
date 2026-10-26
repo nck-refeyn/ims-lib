@@ -143,11 +143,9 @@ TEST_F(MemoryTransferTest, TransactionsBeyond64kUseContextForUpperAddressBits)
     EXPECT_EQ(dev->Memory(HostReport::Actions::CTRLR_IMAGE, 0x10001 * 64, 64), std::vector<std::uint8_t>(data.end() - 64, data.end()));
 }
 
-// BUG: when a transfer response is lost, later responses shift onto earlier requests (see
-// ConnectionManagerTest.DISABLED_LostResponseInPipelineDoesNotShiftLaterResponses), the last
-// request times out, and the worker still reports MEMORY_TRANSFER_COMPLETE with the full byte
-// count. MEMORY_TRANSFER_ERROR is never raised, so callers get misplaced upload data.
-TEST_F(MemoryTransferTest, DISABLED_LostResponseDuringUploadIsReported)
+// Regression: a lost response during a transfer used to go unreported: later responses shifted onto
+// earlier requests and MEMORY_TRANSFER_COMPLETE was raised with misplaced data.
+TEST_F(MemoryTransferTest, LostResponseDuringUploadIsReported)
 {
     auto pattern = Pattern(640, 3);
     dev->WriteMemory(HostReport::Actions::CTRLR_IMAGE, 0, std::vector<std::uint8_t>(pattern.begin(), pattern.end()));

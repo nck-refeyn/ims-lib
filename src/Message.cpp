@@ -191,6 +191,17 @@ namespace iMS
 		return m_resp;
 	}
 
+	const ReportFields& Message::RequestFields() const
+	{
+		return m_rpt.Fields();
+	}
+
+	void Message::AssignResponse(const DeviceReport& resp)
+	{
+        std::unique_lock<std::mutex> lock(m_parseMutex);
+		m_resp = resp;
+	}
+
     // AddBuffer is not synchronised so it must be called from the same thread that does the parsing
 	void Message::AddBuffer(const std::vector<std::uint8_t>& buf)
 	{
