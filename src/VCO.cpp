@@ -51,6 +51,9 @@ namespace iMS
 		std::weak_ptr<IMSSystem> m_ims;
 
         MessageRegistry<MessageHandle, HostReport> m_msgRegistry;
+        // Held while a request is sent and its handle recorded, and while a response event is
+        // handled, so a response arriving before its handle is recorded is not ignored
+        std::recursive_mutex m_TrackMutex;
         class ResponseReceiver : public IEventHandler
 		{
 		public:
@@ -108,6 +111,7 @@ namespace iMS
 
 	void VCO::Impl::ResponseReceiver::EventAction(void* sender, const int message, const int param)
 	{
+		std::lock_guard<std::recursive_mutex> track(m_parent->m_TrackMutex);
 		switch (message)
 		{
 		case (MessageEvents::RESPONSE_RECEIVED) :
@@ -705,6 +709,7 @@ namespace iMS
             f.len = static_cast<std::uint16_t>((int)MEASURE::Count * sizeof(std::uint16_t));
             iorpt->Fields(f);
 
+            std::lock_guard<std::recursive_mutex> track(p_Impl->m_TrackMutex);
             auto h = conn->SendMsg(*iorpt);
             if (NullMessage == h)
             {

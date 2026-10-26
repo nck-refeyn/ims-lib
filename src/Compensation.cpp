@@ -1408,6 +1408,7 @@ namespace iMS
 			int buf_bytes = 512;
 
 			dl_final = NullMessage;
+			MessageHandle last_sent = NullMessage;
 
 			std::vector<std::uint8_t> lut_data;
 			CompensationTable::const_iterator it = m_Table->cbegin();
@@ -1456,20 +1457,26 @@ namespace iMS
 
 				iorpt = new HostReport(HostReport::Actions::LUT_ENTRY, HostReport::Dir::WRITE, lut_addr);
 				iorpt->Payload<std::vector<std::uint8_t>>(lut_data);
-				MessageHandle h = conn->SendMsg(*iorpt);
-				delete iorpt;
 
-				// Add message handle to download list so we can check the responses
+				// Send and add the handle to the download list under its mutex, so the response
+				// worker cannot look for the handle before it is recorded
 				std::unique_lock<std::mutex> dllck{ dl_list_mutex };
-				dl_list.push_back(h);
+				last_sent = conn->SendMsg(*iorpt);
+				dl_list.push_back(last_sent);
 				dllck.unlock();
+				delete iorpt;
 
 				lut_data.clear();
 			}
 			
+			// The worker reports the end when it sees dl_final; if the last response has already
+			// been handled, nothing would, so report it here
 			std::unique_lock<std::mutex> dllck{ dl_list_mutex };
-			if (!dl_list.empty()) dl_final = dl_list.back();
+			dl_final = last_sent;
+			const bool alreadyHandled = last_sent != NullMessage &&
+				std::find(dl_list.begin(), dl_list.end(), last_sent) == dl_list.end() && conn->Response(last_sent).Done();
 			dllck.unlock();
+			if (alreadyHandled) m_Event.Trigger<int>((void *)this, CompensationEvents::DOWNLOAD_FINISHED, 0);
 
 			// Release lock, wait for next download trigger
 			lck.unlock();

@@ -54,6 +54,13 @@ namespace iMS {
         MessageRegistry<MessageHandle, HostReport> m_WriteRegistry;
         std::atomic_bool m_ReadComplete;
         std::atomic_bool m_WriteComplete;
+        // Held while a request is sent and its handle recorded, and while a response event is
+        // handled, so a response arriving before its handle is recorded is not ignored. Recursive:
+        // the handler triggers user events, which may start another access on the same thread.
+        std::recursive_mutex m_TrackMutex;
+        // Raise the completion event once every response of a finished read or write is in
+        void FinishRead(int param);
+        void FinishWrite(int param);
 		bool m_ReadAccessFailure;
 		bool m_WriteAccessFailure;
 
@@ -209,8 +216,23 @@ namespace iMS {
 		return (s);
 	}
 
+	void EEPROM::Impl::FinishRead(int param)
+	{
+		if (m_ReadRegistry.size() || !m_ReadComplete) return;
+		m_ReadComplete.store(false);
+		m_Event.Trigger<int>(this, m_ReadAccessFailure ? EEPROMEvents::EEPROM_ACCESS_FAILED : EEPROMEvents::EEPROM_READ_DONE, param);
+	}
+
+	void EEPROM::Impl::FinishWrite(int param)
+	{
+		if (m_WriteRegistry.size() || !m_WriteComplete) return;
+		m_WriteComplete.store(false);
+		m_Event.Trigger<int>(this, m_WriteAccessFailure ? EEPROMEvents::EEPROM_ACCESS_FAILED : EEPROMEvents::EEPROM_WRITE_DONE, param);
+	}
+
 	void EEPROM::Impl::ResponseReceiver::EventAction(void* sender, const int message, const int param)
 	{
+		std::lock_guard<std::recursive_mutex> track(m_parent->m_TrackMutex);
 		switch (message)
 		{
 		case (MessageEvents::RESPONSE_RECEIVED) :
@@ -347,16 +369,24 @@ namespace iMS {
                 f.addr = static_cast<std::uint16_t>((addr + i) & 0xFFFF);
                 f.context = static_cast<std::uint8_t>(((addr + i) >> 16) & 0xFF);
                 iorpt->Fields(f);
-                h = conn->SendMsg(*iorpt);
-                if (NullMessage == h)
                 {
-                    return -1;
+                    std::lock_guard<std::recursive_mutex> track(p_Impl->m_TrackMutex);
+                    h = conn->SendMsg(*iorpt);
+                    if (NullMessage == h)
+                    {
+                        return -1;
+                    }
+                    p_Impl->m_ReadRegistry.addMessage(h, iorpt);
                 }
-                p_Impl->m_ReadRegistry.addMessage(h, iorpt);
                 if (!(transfer_size = f.len)) break;
             }
 
-            p_Impl->m_ReadComplete.store(true);
+            {
+                // The last response may already have been handled, before this was set
+                std::lock_guard<std::recursive_mutex> track(p_Impl->m_TrackMutex);
+                p_Impl->m_ReadComplete.store(true);
+                p_Impl->FinishRead(h);
+            }
             return h;
         }).value_or(-1);
 	}
@@ -383,6 +413,7 @@ namespace iMS {
             }
 
             iorpt = std::make_shared<HostReport>(actions, HostReport::Dir::WRITE, static_cast<std::uint16_t>(addr & 0xFFFF));
+            MessageHandle last_handle = NullMessage;
             int transfer_size = 0;
             for (unsigned int i = 0; i < p_Impl->m_EEData.size(); i += transfer_size)
             {
@@ -414,16 +445,26 @@ namespace iMS {
 
                 }
                 iorpt->Payload<std::vector<std::uint8_t>>(std::vector<std::uint8_t>(first, last));
-                auto h = conn->SendMsg(*iorpt);
-                if (NullMessage == h)
+                MessageHandle h;
                 {
-                    return false;
+                    std::lock_guard<std::recursive_mutex> track(p_Impl->m_TrackMutex);
+                    h = conn->SendMsg(*iorpt);
+                    if (NullMessage == h)
+                    {
+                        return false;
+                    }
+                    p_Impl->m_WriteRegistry.addMessage(h, iorpt);
                 }
-                p_Impl->m_WriteRegistry.addMessage(h, iorpt);
+                last_handle = h;
                 if (!(transfer_size = std::distance(first, last))) break;
             }
 
-            p_Impl->m_WriteComplete.store(true);
+            {
+                // The last response may already have been handled, before this was set
+                std::lock_guard<std::recursive_mutex> track(p_Impl->m_TrackMutex);
+                p_Impl->m_WriteComplete.store(true);
+                p_Impl->FinishWrite(last_handle);
+            }
             return true;
         }).value_or(false);
 	}

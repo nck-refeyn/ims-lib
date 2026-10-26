@@ -431,10 +431,9 @@ namespace iMS {
 
 				iorpt = new HostReport(HostReport::Actions::SYNTH_REG, HostReport::Dir::WRITE, SYNTH_REG_ProgSyncDig);
 				iorpt->Payload<std::vector<std::uint8_t>>(ltb_data);
-				MessageHandle h = conn->SendMsg(*iorpt);
-				delete iorpt;
 
-                // THROTTLE: wait until dl_list has room (atomically)
+                // THROTTLE: wait until dl_list has room, then send and record the handle under the
+                // same lock, so the response worker cannot look for it before it is recorded
                 {
                     std::unique_lock<std::mutex> dllck{ dl_list_mutex };
                     dl_list_cv.wait(dllck, [&]() {
@@ -443,11 +442,13 @@ namespace iMS {
                     if (!running) {
                         // optionally clean up or break out to terminate quickly
                         dllck.unlock();
+                        delete iorpt;
                         break;
                     }
-                    dl_list.push_back(h);
+                    dl_list.push_back(conn->SendMsg(*iorpt));
                     // dllck.unlock(); // unlocks at scope exit
                 }
+				delete iorpt;
 
 				ltb_data.clear();
 
@@ -467,17 +468,17 @@ namespace iMS {
 				// Send message to program entry into an LTB index
 				iorpt = new HostReport(HostReport::Actions::SYNTH_REG, HostReport::Dir::WRITE, SYNTH_REG_ProgLocal);
 				iorpt->Payload<std::uint16_t>(static_cast<std::uint16_t>(index++));
-				h2 = conn->SendMsg(*iorpt);
-				delete iorpt;
-
 				++it;
 
-				// Add message handles to download list so we can check the responses
+				// Send and add the handle to the download list under its mutex, so the response
+				// worker cannot look for the handle before it is recorded
 				{
 				    std::unique_lock<std::mutex> dllck{ dl_list_mutex };
+				    h2 = conn->SendMsg(*iorpt);
         			if ((it == last) || ((index - offset) >= length)) dl_final = h2;
         			dl_list.push_back(h2);
                 }
+				delete iorpt;
 
 				// Not a great hack: adding a gap ensures packets aren't coalesced (even with TCP_NODELAY enabled)
 				//std::this_thread::sleep_for(std::chrono::milliseconds(5));

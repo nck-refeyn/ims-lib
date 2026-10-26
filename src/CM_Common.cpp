@@ -99,6 +99,12 @@ namespace iMS {
 		{
 			// Create a message, add report, assign it an ID, and place in queue.
 			std::shared_ptr<Message> m = std::make_shared<Message>(Rpt);
+
+            // Register it before queueing: on a fast link the response can arrive before this
+            // thread gets past the push, and a response must find the message it answers
+            auto hnd = m->getMessageHandle();
+            m_msgRegistry.addMessage(hnd, m);
+
             {
                 std::unique_lock <std::mutex> txlck{ m_txmutex };
 				m_queue.push(m);
@@ -107,9 +113,6 @@ namespace iMS {
 				// Notify Worker
 				m_txcond.notify_one();
 			}
-
-            auto hnd = m->getMessageHandle();
-            m_msgRegistry.addMessage(hnd, m);
 
 			return hnd;
 		}
