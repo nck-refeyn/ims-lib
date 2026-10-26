@@ -63,7 +63,7 @@ namespace iMS
 	};
 
 	// Initialise ID Counter
-	MessageHandle Message::mIDCount = 1;
+	std::atomic<MessageHandle> Message::mIDCount{ 1 };
 	
 	void Message::markSendTime()
 	{
@@ -85,13 +85,21 @@ namespace iMS
 
 	void Message::setStatus(const Message::Status s)
 	{
-        if ((m_status.load(std::memory_order_acquire) == Status::UNSENT) && (s > Status::UNSENT)) {
-            markSendTime();
-        }
-        bool c = isComplete();
-		m_status.store(s, std::memory_order_release);
-        if (!c && isComplete()) {
+        // Transports mark a message SENT after writing it, by which time the parser may already
+        // have completed it; a completed message never goes back to an in-progress state
+        Status cur = m_status.load(std::memory_order_acquire);
+        do {
+            if (isTerminal(cur) && !isTerminal(s)) return;
+            // The send time must be set before the new status is visible: the parser times out
+            // SENT messages by their elapsed time, and an unset time reads as decades ago
+            if ((cur == Status::UNSENT) && (s > Status::UNSENT)) markSendTime();
+        } while (!m_status.compare_exchange_weak(cur, s, std::memory_order_acq_rel, std::memory_order_acquire));
+
+        if (!isTerminal(cur) && isTerminal(s)) {
             markRecdTime();
+            // Taking the wait mutex exclusively orders this after a waiter's predicate check, made
+            // under a shared lock, so the notification cannot fall between that check and the wait
+            { std::lock_guard<std::shared_mutex> lock(m_waitMutex); }
             m_cv.notify_all();
         }
 	}

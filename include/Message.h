@@ -84,7 +84,8 @@ namespace iMS
 		HostReport m_rpt;
 		DeviceReport m_resp;
 		MessageHandle m_id;
-		static MessageHandle mIDCount;
+		// Messages are created on several threads (callers, memory transfer, event handlers)
+		static std::atomic<MessageHandle> mIDCount;
 		std::atomic<Status> m_status{Status::UNSENT};
 		std::chrono::time_point<std::chrono::high_resolution_clock> m_tm_sent;
 		std::chrono::time_point<std::chrono::high_resolution_clock> m_tm_recd;

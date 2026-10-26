@@ -124,6 +124,9 @@ namespace iMS {
         }
 
         void notifyAll() {
+            // Taking the wait mutex orders this after any waiter's predicate check, so a waiter
+            // that has just found the predicate false is already waiting and gets woken
+            { std::lock_guard<std::mutex> lock(m_waitMutex); }
             m_cv.notify_all();
         }        
 
