@@ -224,6 +224,8 @@ TEST_F(ImageDownloadTest, DestroyingDownloaderRightAfterVerifyIsSafe)
     }
 }
 
+// --- Verify worker ----------------------------------------------------------------------
+
 namespace {
 
     int DownloadAndWait(ImageDownload& dl, ims_test::EventRecorder& rec)
@@ -232,6 +234,54 @@ namespace {
         return rec.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 10s);
     }
 
+}
+
+// Regression: a failed verify ended the verify worker's loop, so later StartVerify() calls hung
+TEST_F(ImageDownloadTest, VerifyFailureDoesNotStopLaterVerifies)
+{
+    const auto img = Ramp(500);
+    ImageDownload dl(ims(), img);
+    Subscribe(dl);
+    ASSERT_EQ(DownloadAndWait(dl, events), E::DOWNLOAD_FINISHED);
+
+    const auto good = dev().Memory(HostReport::Actions::CTRLR_IMAGE, 640, 1);
+    dev().WriteMemory(HostReport::Actions::CTRLR_IMAGE, 640, { static_cast<std::uint8_t>(good[0] ^ 0xFF) });
+    ASSERT_TRUE(dl.StartVerify());
+    ASSERT_EQ(events.WaitForAny({ E::VERIFY_SUCCESS, E::VERIFY_FAIL }, 10s), E::VERIFY_FAIL);
+
+    dev().WriteMemory(HostReport::Actions::CTRLR_IMAGE, 640, good);
+    ASSERT_TRUE(dl.StartVerify());
+    EXPECT_TRUE(events.WaitFor(E::VERIFY_SUCCESS, 1, 10s));
+    Unsubscribe(dl);
+}
+
+// Regression: a read back shorter than the image was compared over its own length only, so a
+// truncated upload could pass
+TEST_F(ImageDownloadTest, TruncatedReadBackFailsVerify)
+{
+    const auto img = Ramp(500);
+    ImageDownload dl(ims(), img);
+    Subscribe(dl);
+    ASSERT_EQ(DownloadAndWait(dl, events), E::DOWNLOAD_FINISHED);
+
+    dev().SetHandler([](const Request& r) -> std::optional<Response> {
+        if (r.action == HostReport::Actions::CTRLR_IMAGE && r.read && r.addr >= 2) return Response::Ok();
+        return std::nullopt;
+    });
+    ASSERT_TRUE(dl.StartVerify());
+    EXPECT_EQ(events.WaitForAny({ E::VERIFY_SUCCESS, E::VERIFY_FAIL }, 10s), E::VERIFY_FAIL);
+    Unsubscribe(dl);
+}
+
+// Regression: verifying an image that isn't in the table raised no event at all
+TEST_F(ImageDownloadTest, VerifyOfImageNotOnControllerFails)
+{
+    const auto img = Ramp(10);
+    ImageDownload dl(ims(), img);
+    Subscribe(dl);
+    ASSERT_TRUE(dl.StartVerify());
+    EXPECT_EQ(events.WaitForAny({ E::VERIFY_SUCCESS, E::VERIFY_FAIL }, 5s), E::VERIFY_FAIL);
+    Unsubscribe(dl);
 }
 
 TEST_F(ImageDownloadTest, LostResponseFailsDownload)

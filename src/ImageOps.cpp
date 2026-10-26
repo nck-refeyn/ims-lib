@@ -429,6 +429,8 @@ namespace iMS
 			}
 		}
 		bool Busy() const { return m_busy.load(); };
+		// For a transfer that could not be started, so no event will arrive
+		void Abort() { m_busy.store(false); }
 		void Reset() {
 			m_busy.store(true);
 			m_tfr_size.store(0);
@@ -876,7 +878,7 @@ namespace iMS
 					conn->MessageEventSubscribe(MessageEvents::MEMORY_TRANSFER_ERROR, dmah);
 
 					// Start memory download
-					conn->MemoryDownload(*m_imgdata, ImageMemoryAddress, ImageMemoryIndex, uuid);
+					if (!conn->MemoryDownload(*m_imgdata, ImageMemoryAddress, ImageMemoryIndex, uuid)) dmah->Abort();
 
 					while (dmah->Busy()) {
 						std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -1128,7 +1130,9 @@ namespace iMS
 					if (it->UUID() == m_Image.GetUUID()) h = std::distance(ims->Ctlr().ImgTable().cbegin(), it);
 				}
 				if (h < 0) {
-					// Failed. Abort.  TODO: Added error event
+					// Not in the image table, so there is nothing to read back
+                    BOOST_LOG_SEV(lg::get(), sev::error) << "Verify FAILED: image not in the image table";
+					m_Event->Trigger<int>((void *)this, ImageDownloadEvents::VERIFY_FAIL, 0);
 					continue;
 				}
 				ImageTableEntry ite = *(std::next(ims->Ctlr().ImgTable().cbegin(), h));
@@ -1138,7 +1142,7 @@ namespace iMS
 				conn->MessageEventSubscribe(MessageEvents::MEMORY_TRANSFER_ERROR, dmah);
 
 				// Start memory upload
-				conn->MemoryUpload(*m_vfydata, ite.Address(), ite.Size(), h, ite.UUID());
+				if (!conn->MemoryUpload(*m_vfydata, ite.Address(), ite.Size(), h, ite.UUID())) dmah->Abort();
 
 				while (dmah->Busy()) {
 					std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -1147,23 +1151,21 @@ namespace iMS
 				conn->MessageEventUnsubscribe(MessageEvents::MEMORY_TRANSFER_COMPLETE, dmah);
 				conn->MessageEventUnsubscribe(MessageEvents::MEMORY_TRANSFER_ERROR, dmah);
 
-				//int tfr_size = dmah->GetTransferredSize();
+				// Only set by a completed transfer
+				const bool uploaded = dmah->GetTransferredSize() > 0;
 				delete dmah;
-				
-				if (m_vfydata->size() < m_imgdata->size()) {
-					m_imgdata->resize(m_vfydata->size());
-				}
-				else {
-					m_vfydata->resize(m_imgdata->size());
-				}
-				int tfr_len = (int)m_imgdata->size();
 
-				if (*m_vfydata == *m_imgdata) {
+				// The read back is padded to the transfer unit; anything shorter than the image is a failure
+				const bool complete = uploaded && m_vfydata->size() >= m_imgdata->size();
+				if (complete) m_vfydata->resize(m_imgdata->size());
+				int tfr_len = (int)std::min(m_imgdata->size(), m_vfydata->size());
+
+				if (complete && *m_vfydata == *m_imgdata) {
                     BOOST_LOG_SEV(lg::get(), sev::info) << "Verify passed";
                     m_Event->Trigger<int>((void *)this, ImageDownloadEvents::VERIFY_SUCCESS, 0);
                 }
 				else {
-					int first_error = 0;
+					int first_error = tfr_len;
 					for (int i = 0; i < tfr_len; i++) {
 						if (m_vfydata->at(i) != m_imgdata->at(i)) {
 							first_error = i;
@@ -1171,7 +1173,8 @@ namespace iMS
 						}
 					}
                     BOOST_LOG_SEV(lg::get(), sev::info) << "Verify FAILED at " << first_error;
-					m_Event->Trigger<int>((void *)this, ImageDownloadEvents::VERIFY_FAIL, first_error); break;
+					// Keep the worker running: a later StartVerify() must still be served
+					m_Event->Trigger<int>((void *)this, ImageDownloadEvents::VERIFY_FAIL, first_error);
 				}
 
 				if (m_imgdata->size()) m_imgdata->clear();
