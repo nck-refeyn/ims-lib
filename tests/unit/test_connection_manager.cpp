@@ -137,14 +137,22 @@ TEST_F(ConnectionManagerTest, RecoversAfterTimeout)
     EXPECT_EQ(resp.Payload<std::uint16_t>(), 44332);
 }
 
-TEST_F(ConnectionManagerTest, CorruptResponseIsFlaggedAsCrcError)
+// DeviceReport::Done() is also true for a response that failed its CRC, and most callers of
+// SendMsgBlocking only test Done(), so a corrupt response is returned as not done
+TEST_F(ConnectionManagerTest, CorruptResponseIsNotReturnedAsDone)
 {
     dev->InjectFault(Fault::CorruptCrc);
     auto resp = cm->SendMsgBlocking(RegRead(HostReport::Actions::CTRLR_REG, 0));
-    // Note: Done() is true for CRC errors too, so callers that only test Done() accept the payload
-    EXPECT_TRUE(resp.Done());
-    EXPECT_TRUE(resp.RxCRC());
+    EXPECT_FALSE(resp.Done());
     EXPECT_TRUE(events.WaitFor(MessageEvents::RESPONSE_ERROR_CRC));
+}
+
+TEST_F(ConnectionManagerTest, CorruptResponseIsFlaggedOnTheMessage)
+{
+    dev->InjectFault(Fault::CorruptCrc);
+    auto h = cm->SendMsg(RegRead(HostReport::Actions::CTRLR_REG, 0));
+    ASSERT_TRUE(events.WaitFor(MessageEvents::RESPONSE_ERROR_CRC));
+    EXPECT_TRUE(cm->Response(h).RxCRC());
 }
 
 struct DeviceErrorCase {

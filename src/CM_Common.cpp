@@ -126,6 +126,9 @@ namespace iMS {
             auto&& m = m_msgRegistry.findMessage(hnd);
 
             m->waitForCompletion();
+            // DeviceReport::Done() is also true for a response that failed its CRC, and most
+            // callers only test Done(), so don't hand them data that may be corrupt
+            if (m->getStatus() == Message::Status::RX_ERROR_INVALID) return DeviceReport();
             DeviceReport Resp = this->Response(hnd);
 
             return Resp;
