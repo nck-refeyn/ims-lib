@@ -852,8 +852,7 @@ static std::string logErrorString(int err = INT_MAX) {
 
 			// Stop Threads
 			BOOST_LOG_SEV(lg::get(), sev::info) << "Stopping threads" << std::endl;
-			DeviceIsOpen = false;  // must set this to cancel threads
-            m_txcond.notify_all();
+			SignalClosed();  // must set this to cancel threads
 			senderThread.join();
 			BOOST_LOG_SEV(lg::get(), sev::debug) << "sender thread joined" << std::endl;
 			receiverThread.join();

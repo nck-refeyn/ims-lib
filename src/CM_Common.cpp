@@ -76,6 +76,23 @@ namespace iMS {
 		return DeviceIsOpen;
 	}
 
+	void CM_Common::SignalClosed()
+	{
+		{
+			std::lock_guard<std::mutex> lck{ m_txmutex };
+			DeviceIsOpen = false;
+		}
+		m_txcond.notify_all();
+
+		// Passing through each mutex orders the store above before the waiter's next predicate check.
+		// The memory transfer thread holds its mutex for a whole transfer, which ends once it sees
+		// the connection closed.
+		{ std::lock_guard<std::mutex> lck{ m_rxmutex }; }
+		m_rxcond.notify_all();
+		{ std::lock_guard<std::mutex> lck{ m_tfrmutex }; }
+		m_tfrcond.notify_all();
+	}
+
 	MessageHandle CM_Common::SendMsg(HostReport const& Rpt)
 	{
 		if (DeviceIsOpen)
