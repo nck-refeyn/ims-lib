@@ -76,6 +76,7 @@ Each fix has a regression test, named in the second column.
 | `Message::setStatus` could move a completed message back to `SENT` (transports mark messages sent after writing them, by which time they can be complete). It also notified waiters without holding their mutex, so `SendMsgBlocking` could miss its wakeup. | `Message.CompletedStatusIsNotOverwrittenByLateSent` |
 | Message handles came from a plain `int` incremented on several threads; a duplicate handle silently replaced another in-flight message. | `Message.HandlesAreUniqueAcrossThreads` |
 | `CM_Common::MemoryTransfer` dereferenced a message before checking it for null (a message freed before it was harvested). | `MemoryTransferTest.TransactionsBeyond64kUseContextForUpperAddressBits` |
+| `SendMsgBlocking` returned CRC-corrupted responses as `Done()`, which most callers take as success. They now come back not done. | `ConnectionManagerTest.CorruptResponseIsNotReturnedAsDone` |
 | `UpdatePhaseTuning` cast its 14-bit phase word through `uint8_t`. | `SignalPathTest.PhaseTuningUsesFull14BitRange` |
 | `HostReport` fell through from `FW_UPGRADE`/`CTRLR_FW_UPGRADE` into `WAVE_SHAPING`, so their default `len` was always 2. iCSA firmware returns 4 bytes regardless, so it was masked there. | `FirmwareUpgrade/HostReportDefaultLength.*` |
 | `FWVersion` read four words from a vector of any size. | `FWVersion.WrongSizeYieldsInvalidVersion` |
@@ -95,10 +96,6 @@ These were found while writing the tests. Each bug has a `DISABLED_` test that a
 |---|---|
 | `ConnectionManagerTest.DISABLED_LostResponseInPipelineDoesNotShiftLaterResponses` | Responses have no sequence number. After one lost response, every later in-flight response is given to the request before it and reported as `Done()` with no error. |
 | `MemoryTransferTest.DISABLED_LostResponseDuringUploadIsReported` | Because of the above, a lost response during `MemoryUpload` returns misplaced data and `MEMORY_TRANSFER_COMPLETE`; `MEMORY_TRANSFER_ERROR` is never raised. |
-
-Not covered by a test:
-
-- `DeviceReport::Done()` is also true for CRC errors, and most callers check only `Done()`.
 
 ## Hardware-in-the-loop
 
