@@ -49,7 +49,15 @@ set_source_files_properties(${api_lib_dir}/sqlite3/sqlite3.c PROPERTIES LANGUAGE
 if(WIN32)
 set(ims_api_source_files
     ${ims_api_source_files}
-    ${api_lib_dir}/enumser/enumser.cpp
     ${api_lib_dir}/CyAPI/CyAPI.cpp
 )
+# enumser depends on ATL, which MinGW does not provide (CM_RS422.cpp has a MinGW fallback)
+if(NOT MINGW)
+    list(APPEND ims_api_source_files ${api_lib_dir}/enumser/enumser.cpp)
+endif()
+endif()
+
+if(MINGW)
+    # Vendor code assigns negative USBD_STATUS constants to unsigned values; MSVC only warns about this
+    set_source_files_properties(${api_lib_dir}/CyAPI/CyAPI.cpp PROPERTIES COMPILE_OPTIONS "-Wno-narrowing")
 endif()

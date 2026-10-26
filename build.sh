@@ -60,6 +60,19 @@ TOOLCHAIN_FILE="$BUILD_DIR/generators/conan_toolchain.cmake"
 
 # Detect OS and architecture
 OS_NAME="$(uname -s | tr '[:upper:]' '[:lower:]')"  # linux, darwin, etc.
+
+# MSYS2 (MinGW) builds use the MSYS2 packages for Boost and libxml2 instead of Conan
+MSYS_BUILD=0
+case "$OS_NAME" in
+    mingw*|msys*)
+        MSYS_BUILD=1
+        OS_NAME="windows"
+        if [[ "${MSYSTEM:-MSYS}" == "MSYS" ]]; then
+            echo "Error: run this script from an MSYS2 UCRT64 / MINGW64 / CLANG64 shell, not the plain MSYS shell"
+            exit 1
+        fi
+        ;;
+esac
 #ARCH="$(uname -m)"                                   # x86_64, aarch64, i386
 OS_ARCH="${OS_NAME}_${ARCH}"
 
@@ -102,24 +115,32 @@ mkdir -p "$BUILD_DIR"
 ########################################
 # Conan install
 ########################################
-echo "Running Conan install..."
-# Toolchain will be generated in build/generators
-conan install . --profile "$PROFILE" \
-    -s build_type="$BUILD_TYPE" \
-    -s arch="$ARCH" \
-    -s compiler.cppstd=17 \
-    --build=missing
+if [[ $MSYS_BUILD -eq 1 ]]; then
+    echo "MSYS2 build: using MSYS2 packages for dependencies (skipping Conan)"
+    echo "  Requires: pacman -S --needed \$MINGW_PACKAGE_PREFIX-{gcc,cmake,ninja,boost,libxml2}"
+else
+    echo "Running Conan install..."
+    # Toolchain will be generated in build/generators
+    conan install . --profile "$PROFILE" \
+        -s build_type="$BUILD_TYPE" \
+        -s arch="$ARCH" \
+        -s compiler.cppstd=17 \
+        --build=missing
 
-if [[ ! -f "$TOOLCHAIN_FILE" ]]; then
-    echo "Error: Conan toolchain file not found: $TOOLCHAIN_FILE"
-    exit 1
+    if [[ ! -f "$TOOLCHAIN_FILE" ]]; then
+        echo "Error: Conan toolchain file not found: $TOOLCHAIN_FILE"
+        exit 1
+    fi
 fi
 
 ########################################
 # Configure CMake
 ########################################
 echo "Configuring CMake..."
-CMakeArgs=(-S . -B "$BUILD_DIR" -G "$GENERATOR" -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" -DCMAKE_BUILD_TYPE="$BUILD_TYPE ")
+CMakeArgs=(-S . -B "$BUILD_DIR" -G "$GENERATOR" -DCMAKE_BUILD_TYPE="$BUILD_TYPE")
+if [[ $MSYS_BUILD -eq 0 ]]; then
+    CMakeArgs+=(-DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE")
+fi
 if [ "$BUILD_DOCS" -eq 1 ]; then
     CMakeArgs+=("-DBUILD_DOCS=ON")
 fi
@@ -145,6 +166,19 @@ if [ "$BUILD_DOCS" -ne 1 ]; then
 
     LIB_SRC_DIR="$BUILD_DIR"
 
+    if [[ $MSYS_BUILD -eq 1 ]]; then
+        # MinGW produces libimsLibrary[d].dll plus its import library libimsLibrary[d].dll.a
+        if [[ "$BUILD_TYPE" == "Debug" ]]; then
+            LIB_BASE="libimsLibraryd"
+        else
+            LIB_BASE="libimsLibrary"
+        fi
+        if [[ ! -f "$LIB_SRC_DIR/${LIB_BASE}.dll" ]]; then
+            echo "Error: Could not locate ${LIB_BASE}.dll"
+            exit 1
+        fi
+        cp -fv "$LIB_SRC_DIR/${LIB_BASE}.dll" "$LIB_SRC_DIR/${LIB_BASE}.dll.a" "$LIB_DIR/"
+    else
     # Determine library base name
     if [[ "$BUILD_TYPE" == "Debug" ]]; then
         LIB_BASE="libimsd"
@@ -175,6 +209,7 @@ if [ "$BUILD_DOCS" -ne 1 ]; then
     # Development symlink (optional)
     if [[ $DEV_SDK -eq 1 ]]; then
         ln -sf "$REAL_LIB_NAME" "$LIB_DIR/${LIB_BASE}.so"
+    fi
     fi
     ########################################
     # Copy public headers from ims_api_h.cmake

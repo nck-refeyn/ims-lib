@@ -50,7 +50,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     ##
     ## Get BOOST
     ##
-    find_package(Boost REQUIRED)
+    find_package(Boost REQUIRED COMPONENTS regex log_setup log)
 endif()
 
 # add_subdirectory(modules/boost-cmake)
@@ -129,7 +129,10 @@ endif()
 # Compiler specific Definitions
 #
 if(WIN32)
-    target_compile_definitions(${IMS_TARGET_NAME} PRIVATE FTD2XX_STATIC)
+    # The bundled static FTDI library is MSVC-only; MinGW links against ftd2xx.dll instead
+    if(NOT MINGW)
+        target_compile_definitions(${IMS_TARGET_NAME} PRIVATE FTD2XX_STATIC)
+    endif()
     if (${IMSLIB_BUILD_SHARED})
         target_compile_definitions(${IMS_TARGET_NAME} PRIVATE _EXPORTING_IMS)
     endif()
@@ -170,7 +173,10 @@ endif()
 #
 # Global Definitions
 #
-target_compile_definitions(${IMS_TARGET_NAME} PUBLIC LIBXML_STATIC)
+# Conan builds libxml2 statically; MSYS2's libxml2 is a DLL
+if(NOT MINGW)
+    target_compile_definitions(${IMS_TARGET_NAME} PUBLIC LIBXML_STATIC)
+endif()
 
 #
 # Building and Linking
@@ -197,18 +203,54 @@ target_link_libraries(${IMS_TARGET_NAME}
             Boost::log_setup
             Boost::log
 #        -Wl,--no-whole-archive        
-        ${libxml2_LIBRARIES}
 )
+
+# Conan and CMake's FindLibXml2 both provide the LibXml2::LibXml2 target
+if(TARGET LibXml2::LibXml2)
+    target_link_libraries(${IMS_TARGET_NAME} PRIVATE LibXml2::LibXml2)
+else()
+    target_link_libraries(${IMS_TARGET_NAME} PRIVATE ${libxml2_LIBRARIES})
+endif()
 
 if(WIN32)
-add_library(ftd2xx STATIC IMPORTED)
+# Visual Studio generators set the platform (Win32/x64); single-config generators (Ninja/MinGW) do not
+if(CMAKE_GENERATOR_PLATFORM)
+    set(FTDI_PLATFORM ${CMAKE_GENERATOR_PLATFORM})
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(FTDI_PLATFORM x64)
+else()
+    set(FTDI_PLATFORM Win32)
+endif()
 
-set_target_properties(ftd2xx PROPERTIES
-    IMPORTED_LOCATION
-    ${api_lib_dir}/FTDI/Static/${CMAKE_GENERATOR_PLATFORM}/ftd2xx.lib
-)
+if(MINGW)
+    # The static ftd2xx.lib contains MSVC-compiled C++ and cannot be linked by GCC.
+    # Generate an import library for ftd2xx.dll (installed with the FTDI D2XX driver) instead.
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "MinGW builds of ${IMS_TARGET_NAME} are only supported for 64-bit targets")
+    endif()
+    find_program(DLLTOOL_EXECUTABLE NAMES ${CMAKE_CXX_COMPILER_TARGET}-dlltool dlltool
+        HINTS "${CMAKE_CXX_COMPILER}/.." REQUIRED)
+    set(FTD2XX_IMPORT_LIB ${CMAKE_CURRENT_BINARY_DIR}/libftd2xx.dll.a)
+    add_custom_command(
+        OUTPUT ${FTD2XX_IMPORT_LIB}
+        COMMAND ${DLLTOOL_EXECUTABLE} -d ${api_lib_dir}/FTDI/ftd2xx.def -l ${FTD2XX_IMPORT_LIB}
+        DEPENDS ${api_lib_dir}/FTDI/ftd2xx.def
+        COMMENT "Generating ftd2xx import library"
+    )
+    add_custom_target(ftd2xx_import DEPENDS ${FTD2XX_IMPORT_LIB})
+    add_dependencies(${IMS_TARGET_NAME} ftd2xx_import)
 
-target_link_libraries(${IMS_TARGET_NAME} PRIVATE ftd2xx)
+    target_link_libraries(${IMS_TARGET_NAME} PRIVATE ${FTD2XX_IMPORT_LIB} ws2_32 setupapi)
+else()
+    add_library(ftd2xx STATIC IMPORTED)
+
+    set_target_properties(ftd2xx PROPERTIES
+        IMPORTED_LOCATION
+        ${api_lib_dir}/FTDI/Static/${FTDI_PLATFORM}/ftd2xx.lib
+    )
+
+    target_link_libraries(${IMS_TARGET_NAME} PRIVATE ftd2xx)
+endif()
 endif()
 
 ## Documentation

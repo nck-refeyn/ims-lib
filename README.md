@@ -122,6 +122,17 @@ Optional flags:
    -Profile [profile]          <= Choose a non-default Conan profile
 ``` 
 
+#### Windows (MSYS2 / MinGW, 64-bit only)
+
+From an MSYS2 **UCRT64** (or MINGW64 / CLANG64) shell, install the toolchain and dependencies, then run the same script as Linux. Conan is not used; Boost and libxml2 come from MSYS2 packages.
+
+```bash
+pacman -S --needed $MINGW_PACKAGE_PREFIX-{gcc,cmake,ninja,boost,libxml2}
+./build.sh -s <stage_dir>
+```
+
+This produces `libimsLibrary.dll` and its import library `libimsLibrary.dll.a`. The FTDI driver is linked dynamically, so at runtime `ftd2xx.dll` (installed with the FTDI D2XX driver) must be available, along with the MSYS2 runtime DLLs for Boost, libxml2 and libstdc++.
+
 #### Linux / Embedded Linux
 
 ```bash

@@ -39,9 +39,67 @@
 
 #ifdef WIN32
 #define CENUMERATESERIAL_USE_STL
+#if defined(__MINGW32__)
+// MinGW has no ATL, which enumser requires. Provide the one CEnumerateSerial method used here,
+// reading the same registry key (HKLM\HARDWARE\DEVICEMAP\SERIALCOMM) with plain Win32 calls.
+#include <windows.h>
+#include <string>
+#include <vector>
+
+namespace {
+	class CEnumerateSerial
+	{
+	public:
+#ifdef _UNICODE
+		using String = std::wstring;
+#else
+		using String = std::string;
+#endif
+		using CNamesArray = std::vector<String>;
+
+		static bool UsingRegistry(CNamesArray& ports)
+		{
+			ports.clear();
+
+			HKEY hKey;
+			LONG nError = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"HARDWARE\\DEVICEMAP\\SERIALCOMM", 0, KEY_QUERY_VALUE, &hKey);
+			if (nError != ERROR_SUCCESS) {
+				SetLastError(nError);
+				return false;
+			}
+
+			for (DWORD dwIndex = 0; ; dwIndex++)
+			{
+				wchar_t valueName[256];
+				DWORD valueNameLen = sizeof(valueName) / sizeof(valueName[0]);
+				wchar_t data[256] = {};
+				DWORD dataSize = sizeof(data) - sizeof(wchar_t); // leave room to guarantee null termination
+				DWORD type = 0;
+				nError = RegEnumValueW(hKey, dwIndex, valueName, &valueNameLen, nullptr, &type, reinterpret_cast<LPBYTE>(data), &dataSize);
+				if (nError == ERROR_NO_MORE_ITEMS) break;
+				if (nError != ERROR_SUCCESS || type != REG_SZ) continue;
+
+				std::wstring name(data);
+#ifdef _UNICODE
+				ports.push_back(name);
+#else
+				int len = WideCharToMultiByte(CP_ACP, 0, name.c_str(), -1, nullptr, 0, nullptr, nullptr);
+				std::string narrow(len > 0 ? len - 1 : 0, '\0');
+				if (len > 1) WideCharToMultiByte(CP_ACP, 0, name.c_str(), -1, &narrow[0], len, nullptr, nullptr);
+				ports.push_back(narrow);
+#endif
+			}
+
+			RegCloseKey(hKey);
+			return true;
+		}
+	};
+}
+#else
 #include "atlbase.h"
 #include "setupapi.h"
 #include "enumser.h"
+#endif
 #endif
 
 #if defined _WIN32 && defined _DEBUG

@@ -66,7 +66,7 @@ extern "C" {
 
 // Include symbol for the current memory address of the executing module (DLL or EXE)
 // see: http://www.codeguru.com/cpp/w-p/dll/tips/article.php/c3635/Tip-Detecting-a-HMODULEHINSTANCE-Handle-Within-the-Module-Youre-Running-In.htm
-#if _MSC_VER >= 1300    // for VC 7.0
+#if (defined(_MSC_VER) && _MSC_VER >= 1300) || defined(__MINGW32__)    // for VC 7.0 / MinGW
 // from ATL 7.0 sources
 #ifndef _delayimp_h
 extern "C" IMAGE_DOS_HEADER __ImageBase;

@@ -83,7 +83,7 @@ namespace iMS {
 	class CM_CYUSB::Impl
 	{
 	public:
-		Impl::Impl() {}
+		Impl() {}
 		~Impl();
 
 		const std::string Ident = "CM_USBSS";
@@ -606,7 +606,7 @@ namespace iMS {
 						MessageHandle msgHnd = (*usb_it)->handle;
 
 						// Read completed but message may not have been added to list from sender thread yet, look for it first before reading into buffer.
-                        auto& msg = m_msgRegistry.findMessage(msgHnd);
+                        auto msg = m_msgRegistry.findMessage(msgHnd);
 						if (msg != nullptr)
 						{
 							pImpl->Ept.cInEpt->FinishDataXfer((PUCHAR)&((*((*usb_it)->Buffer))[0]), (*usb_it)->bufLen, (*usb_it)->OvLap, (*usb_it)->context);
