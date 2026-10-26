@@ -129,14 +129,11 @@ TEST_F(MemoryTransferTest, DownloadThenUploadRoundTrip)
 // freed before it is harvested crashes the transfer (seen on a slow CI runner). Enable once fixed.
 TEST_F(MemoryTransferTest, DISABLED_TransactionsBeyond64kUseContextForUpperAddressBits)
 {
-    // 0x10000 transactions fit in the 16-bit address; the next one needs context = 1.
-    // Completed messages are normally kept for 10 s and every one of them is rescanned per
-    // received report, which makes this transfer quadratic; free them quickly instead.
-    cm->SetTimeouts(100, 100, 1000, 100);
+    // 0x10000 transactions fit in the 16-bit address; the next one needs context = 1
     const std::size_t n = (0x10000 + 2) * 64;
     auto data = Pattern(n);
     ASSERT_TRUE(cm->MemoryDownload(data, 0, 0, kUuid));
-    ASSERT_TRUE(events.WaitFor(MessageEvents::MEMORY_TRANSFER_COMPLETE, 1, 60s));
+    ASSERT_TRUE(events.WaitFor(MessageEvents::MEMORY_TRANSFER_COMPLETE, 1, 30s));
 
     auto writes = dev->Requests(HostReport::Actions::CTRLR_IMAGE);
     ASSERT_EQ(writes.size(), 0x10002u);

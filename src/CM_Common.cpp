@@ -173,7 +173,7 @@ namespace iMS {
         bool interruptInProgress = false;
         std::shared_ptr<Message> interruptMsg;
 
-        m_msgRegistry.forEachMessage([&](const std::shared_ptr<Message>& m) {
+        m_msgRegistry.forEachPending([&](const std::shared_ptr<Message>& m) {
             if (!m->Response().Done() && !m->Response().Idle())
                 activeMsgFound = true;
             if (m->getStatus() == Message::Status::INTERRUPT) {
@@ -282,9 +282,8 @@ namespace iMS {
 
     void CM_Common::HandleTimeoutsAndCleanup()
     {
-        std::vector<MessageHandle> messagesToRemove;
-
-        m_msgRegistry.forEachMessage([&](const std::shared_ptr<Message>& m)
+        // Only messages still waiting can time out
+        m_msgRegistry.forEachPending([&](const std::shared_ptr<Message>& m)
         {
             if (m->getStatus() == Message::Status::SENT ||
                 m->getStatus() == Message::Status::RX_PARTIAL)
@@ -296,16 +295,19 @@ namespace iMS {
                                 MessageEvents::RESPONSE_TIMED_OUT, m->getMessageHandle());
                 }
             }
-    #ifndef DEBUG_PRESERVE_LIST
-            else if (m->TimeElapsed() > autoFreeTimeout && m->isComplete())
-            {
-                messagesToRemove.push_back(m->getMessageHandle());
-            }
-    #endif
         });
 
-        for (auto& msg : messagesToRemove)
-            m_msgRegistry.removeMessage(msg);
+    #ifndef DEBUG_PRESERVE_LIST
+        // Freeing completed messages scans everything kept, so do it occasionally rather than
+        // on every pass; otherwise per-message cost grows with the traffic of the last autoFreeTimeout
+        const auto now = std::chrono::steady_clock::now();
+        if (now - m_lastCleanup > std::chrono::milliseconds(100)) {
+            m_lastCleanup = now;
+            m_msgRegistry.removeIf([&](const std::shared_ptr<Message>& m) {
+                return m->isComplete() && m->TimeElapsed() > autoFreeTimeout;
+            });
+        }
+    #endif
     }
 
     void CM_Common::HandleMessage(const std::shared_ptr<Message>& m)
@@ -391,7 +393,7 @@ namespace iMS {
             HandleInterrupts();
 
             // Look for first message in list that is waiting for characters
-            m_msgRegistry.forEachMessage([&](const std::shared_ptr<Message>& m) { 
+            m_msgRegistry.forEachPending([&](const std::shared_ptr<Message>& m) { 
                 HandleMessage(m);
             });
 

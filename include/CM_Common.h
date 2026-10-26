@@ -219,6 +219,7 @@ namespace iMS {
         bool HandleUnexpectedChar(std::shared_ptr<Message> m, char c);
         void HandleTimeoutsAndCleanup();
         void TriggerPendingEvents();
+        std::chrono::steady_clock::time_point m_lastCleanup{};
 	};
 
 
