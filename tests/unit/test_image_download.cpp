@@ -1,0 +1,233 @@
+// Copyright 2026 Isomet (UK) Ltd. All rights reserved.
+//
+// Public ImageDownload API (FastTransfer controller) end-to-end against the simulator.
+
+#include "SimFixture.h"
+#include "ImageOps.h"
+#include "Image_p.h"
+
+#include <algorithm>
+#include <cstdint>
+#include "IMSConstants.h"
+
+#include <gtest/gtest.h>
+
+using namespace iMS;
+using namespace iMS::sim;
+using namespace std::chrono_literals;
+
+namespace {
+
+    using E = ImageDownloadEvents;
+
+    class ImageDownloadTest : public ims_test::SimSystemTest
+    {
+    protected:
+        Image Ramp(std::size_t points)
+        {
+            Image img("ramp");
+            for (std::size_t i = 0; i < points; i++)
+                img.AddPoint(ImagePoint(FAP(20.0 + 0.01 * static_cast<double>(i), 50.0, static_cast<double>(i % 360))));
+            return img;
+        }
+
+        void Subscribe(ImageDownload& dl)
+        {
+            for (int e = 0; e < E::Count; e++) dl.ImageDownloadEventSubscribe(e, &events);
+        }
+
+        void Unsubscribe(ImageDownload& dl)
+        {
+            for (int e = 0; e < E::Count; e++) dl.ImageDownloadEventUnsubscribe(e, &events);
+        }
+
+        ims_test::EventRecorder events;
+    };
+
+}
+
+TEST_F(ImageDownloadTest, DownloadRegistersImageAndFillsMemory)
+{
+    auto img = Ramp(1000);
+    ImageDownload dl(ims(), img);
+    Subscribe(dl);
+
+    ASSERT_TRUE(dl.StartDownload());
+    ASSERT_EQ(events.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 10s), E::DOWNLOAD_FINISHED);
+    const int bytes = events.Events(E::DOWNLOAD_FINISHED)[0].param;
+    EXPECT_GE(bytes, 1000);
+    EXPECT_EQ(bytes % 64, 0) << "transfers are padded to the 64-byte transfer unit";
+
+    // ADD_ENTRY carries [UUID(16) | bytes(4) | points(4) | format(4) | name(16)]
+    auto adds = dev().Requests(HostReport::Actions::CTRLR_IMGIDX);
+    ASSERT_FALSE(adds.empty());
+    const auto& add = adds.front();
+    EXPECT_FALSE(add.read);
+    EXPECT_EQ(add.context, static_cast<std::uint8_t>(HostReport::ImageIndexOperations::ADD_ENTRY));
+    ASSERT_EQ(add.payload.size(), 44u);
+    const auto uuid = img.GetUUID();
+    EXPECT_TRUE(std::equal(uuid.begin(), uuid.end(), add.payload.begin()));
+    const std::uint32_t points = add.payload[20] | (add.payload[21] << 8) | (add.payload[22] << 16) | (add.payload[23] << 24);
+    EXPECT_EQ(points, 1000u);
+
+    // The image is now listed in the controller's table
+    ASSERT_EQ(ims()->Ctlr().ImgTable().size(), 1u);
+    Unsubscribe(dl);
+}
+
+// BUG: destroys the ImageDownload right after VERIFY_SUCCESS, while the verify worker is still
+// clearing its buffers, so it can corrupt the heap. See DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe.
+// Enable once fixed.
+TEST_F(ImageDownloadTest, DISABLED_VerifyPassesOnIntactMemory)
+{
+    const auto img = Ramp(500); // ImageDownload keeps a reference to it
+    ImageDownload dl(ims(), img);
+    Subscribe(dl);
+    ASSERT_TRUE(dl.StartDownload());
+    ASSERT_EQ(events.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 10s), E::DOWNLOAD_FINISHED);
+
+    ASSERT_TRUE(dl.StartVerify());
+    EXPECT_EQ(events.WaitForAny({ E::VERIFY_SUCCESS, E::VERIFY_FAIL }, 10s), E::VERIFY_SUCCESS);
+    Unsubscribe(dl);
+}
+
+TEST_F(ImageDownloadTest, VerifyDetectsCorruptedMemory)
+{
+    const auto img = Ramp(500); // ImageDownload keeps a reference to it
+    ImageDownload dl(ims(), img);
+    Subscribe(dl);
+    ASSERT_TRUE(dl.StartDownload());
+    ASSERT_EQ(events.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 10s), E::DOWNLOAD_FINISHED);
+
+    auto mem = dev().Memory(HostReport::Actions::CTRLR_IMAGE, 640, 1);
+    dev().WriteMemory(HostReport::Actions::CTRLR_IMAGE, 640, { static_cast<std::uint8_t>(mem[0] ^ 0xFF) });
+
+    ASSERT_TRUE(dl.StartVerify());
+    EXPECT_EQ(events.WaitForAny({ E::VERIFY_SUCCESS, E::VERIFY_FAIL }, 10s), E::VERIFY_FAIL);
+    Unsubscribe(dl);
+}
+
+TEST_F(ImageDownloadTest, ControllerRejectingEntryReportsMemoryFull)
+{
+    dev().SetHandler([](const Request& r) -> std::optional<Response> {
+        if (r.action == HostReport::Actions::CTRLR_IMGIDX && !r.read) return Response::Error(status::GeneralError);
+        return std::nullopt;
+    });
+    const auto img = Ramp(10); // ImageDownload keeps a reference to it
+    ImageDownload dl(ims(), img);
+    Subscribe(dl);
+    ASSERT_TRUE(dl.StartDownload());
+    EXPECT_EQ(events.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 10s), E::DOWNLOAD_FAIL_MEMORY_FULL);
+    EXPECT_TRUE(dev().Requests(HostReport::Actions::CTRLR_IMAGE).empty());
+    Unsubscribe(dl);
+}
+
+// --- iCSA: MSB-first formatting and the image table -------------------------------
+
+namespace {
+
+    class ICSAImageTest : public ImageDownloadTest
+    {
+    protected:
+        void SetUp() override { sys = ims_test::SimSystem::Start(SimDevice::iCSA()); }
+
+        bool Download(const Image& img, bool verify = false)
+        {
+            ims_test::EventRecorder rec;
+            ImageDownload dl(ims(), img);
+            for (int e = 0; e < E::Count; e++) dl.ImageDownloadEventSubscribe(e, &rec);
+            bool ok = dl.StartDownload() &&
+                rec.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 10s) == E::DOWNLOAD_FINISHED;
+            if (ok && verify)
+                ok = dl.StartVerify() && rec.WaitForAny({ E::VERIFY_SUCCESS, E::VERIFY_FAIL }, 10s) == E::VERIFY_SUCCESS;
+            for (int e = 0; e < E::Count; e++) dl.ImageDownloadEventUnsubscribe(e, &rec);
+            return ok;
+        }
+    };
+
+}
+
+TEST_F(ICSAImageTest, PowerUpTableSlotIsSkipped)
+{
+    // A fresh iCSA reports one table entry that can't be read; Initialise ends up with none
+    EXPECT_TRUE(ims()->Ctlr().ImgTable().empty());
+}
+
+// BUG: verifies, then destroys the ImageDownload as above. Enable once
+// DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe is fixed.
+TEST_F(ICSAImageTest, DISABLED_DownloadUsesMsbFirstModeAndVerifies)
+{
+    const auto img = Ramp(1000);
+    ASSERT_TRUE(Download(img, true));
+    // The controller advertises MSB-first support in FPIFormat bit 0; the download enables it in bit 1
+    auto writes = dev().Requests(HostReport::Actions::CTRLR_REG);
+    auto fpi = std::find_if(writes.begin(), writes.end(), [](const Request& r) { return !r.read && r.addr == CTRLR_REG_FPIFormat; });
+    ASSERT_NE(fpi, writes.end());
+    EXPECT_EQ(fpi->Words(), (std::vector<std::uint16_t>{ 0x0002 }));
+}
+
+TEST_F(ICSAImageTest, TableTracksDownloadsAndErases)
+{
+    const auto a = Ramp(100);
+    const auto b = Ramp(200);
+    ASSERT_TRUE(Download(a));
+    ASSERT_TRUE(Download(b));
+    auto table = dev().ImageTable();
+    ASSERT_EQ(table.size(), 2u);
+    EXPECT_EQ(table[0].handle, 0);
+    EXPECT_EQ(table[1].handle, 1);
+
+    ImageTableViewer itv(ims());
+    ASSERT_EQ(itv.Entries(), 2);
+    ASSERT_TRUE(itv.Erase(0));
+    table = dev().ImageTable();
+    ASSERT_EQ(table.size(), 1u);
+    EXPECT_EQ(table[0].handle, 1);
+
+    ASSERT_TRUE(itv.Clear());
+    EXPECT_TRUE(dev().ImageTable().empty());
+}
+
+TEST_F(ICSAImageTest, AlreadyPresentImageIsNotDownloadedAgain)
+{
+    const auto img = Ramp(100);
+    ASSERT_TRUE(Download(img));
+    dev().ClearRequests();
+    ASSERT_TRUE(Download(img));
+    EXPECT_TRUE(dev().Requests(HostReport::Actions::CTRLR_IMAGE).empty());
+}
+
+// BUG: before every download ImageDownload reads FPIFormat and writes back `value << 1`, meaning
+// to set bit 1. Bit 0 is read-only and always 1, so each download shifts in another set bit:
+// 0x0001 -> 0x0003 -> 0x0007 ... until 0xFFFF, persisting until the synth is power cycled. Seen on
+// iCSA2510 (0x007F at connect) and iCSA2605 (0x0001 -> 0x0FFF over 11 downloads). The value should
+// stay at 0x0003. Enable once fixed.
+TEST_F(ICSAImageTest, DISABLED_RepeatedDownloadsOnlySetMsbEnableBit)
+{
+    for (int i = 0; i < 3; i++) ASSERT_TRUE(Download(Ramp(10 + i)));
+    EXPECT_EQ(dev().Reg(Target::Controller, CTRLR_REG_FPIFormat), 0x0003);
+}
+
+// BUG: ImageDownload::Impl declares its worker threads before the image buffers and event trigger,
+// so ~ImageDownload frees those first and joins the workers last. The verify worker keeps running
+// after it triggers VERIFY_SUCCESS (it clears its buffers), so a caller that destroys the
+// ImageDownload on that event frees memory the worker is still using: heap corruption
+// (0xc0000374) about 40% of the time with a 20000-point image. Stopping the workers at the start of
+// ~Impl() fixes it. A failure here crashes the test binary. Enable once fixed.
+TEST_F(ImageDownloadTest, DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe)
+{
+    for (int i = 0; i < 5; i++) {
+        const auto img = Ramp(20000);
+        ims_test::EventRecorder rec;
+        {
+            ImageDownload dl(ims(), img);
+            for (int e = 0; e < E::Count; e++) dl.ImageDownloadEventSubscribe(e, &rec);
+            ASSERT_TRUE(dl.StartDownload());
+            ASSERT_EQ(rec.WaitForAny({ E::DOWNLOAD_FINISHED, E::DOWNLOAD_FAIL_MEMORY_FULL, E::DOWNLOAD_FAIL_TRANSFER_ABORT }, 30s), E::DOWNLOAD_FINISHED);
+            ASSERT_TRUE(dl.StartVerify());
+            ASSERT_EQ(rec.WaitForAny({ E::VERIFY_SUCCESS, E::VERIFY_FAIL }, 30s), E::VERIFY_SUCCESS);
+            // Destroyed here, as soon as the result is known
+        }
+        ImageTableViewer(ims()).Clear();
+    }
+}

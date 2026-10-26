@@ -254,6 +254,15 @@ else()
 endif()
 endif()
 
+## Tests
+option(IMSLIB_BUILD_TESTS "Build unit tests (simulated hardware)" OFF)
+option(IMSLIB_BUILD_HIL "Build hardware-in-the-loop tests and benchmarks" OFF)
+
+if(IMSLIB_BUILD_TESTS OR IMSLIB_BUILD_HIL)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
 ## Documentation
 option(BUILD_DOCS "Build SDK documentation" OFF)
 
