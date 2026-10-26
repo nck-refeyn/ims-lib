@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <thread>
 
 using namespace iMS;
 using namespace iMS::sim;
@@ -125,9 +126,7 @@ TEST_F(MemoryTransferTest, DownloadThenUploadRoundTrip)
     EXPECT_EQ(readback, original);
 }
 
-// BUG: CM_Common::MemoryTransfer dereferences a message before checking it for null, so a message
-// freed before it is harvested crashes the transfer (seen on a slow CI runner). Enable once fixed.
-TEST_F(MemoryTransferTest, DISABLED_TransactionsBeyond64kUseContextForUpperAddressBits)
+TEST_F(MemoryTransferTest, TransactionsBeyond64kUseContextForUpperAddressBits)
 {
     // 0x10000 transactions fit in the 16-bit address; the next one needs context = 1
     const std::size_t n = (0x10000 + 2) * 64;
@@ -166,4 +165,34 @@ TEST_F(MemoryTransferTest, DISABLED_LostResponseDuringUploadIsReported)
     const bool completed = events.Count(MessageEvents::MEMORY_TRANSFER_COMPLETE) > 0;
     EXPECT_NE(errored, completed);
     if (completed) EXPECT_EQ(readback, pattern);
+}
+
+TEST_F(MemoryTransferTest, LostResponseDuringDownloadIsReported)
+{
+    dev->SetHandler([this, n = 0](const Request& r) mutable -> std::optional<Response> {
+        if (r.action == HostReport::Actions::CTRLR_IMAGE && ++n == 5) dev->InjectFault(Fault::Drop);
+        return std::nullopt;
+    });
+    auto data = Pattern(640);
+    ASSERT_TRUE(cm->MemoryDownload(data, 0, 0, kUuid));
+    ASSERT_TRUE(events.WaitFor(MessageEvents::MEMORY_TRANSFER_ERROR, 1, 5s));
+    EXPECT_EQ(events.Count(MessageEvents::MEMORY_TRANSFER_COMPLETE), 0u);
+}
+
+// Closing the connection stops the parser, so a transfer waiting for responses must give up rather
+// than block Disconnect() forever
+TEST_F(MemoryTransferTest, DisconnectDuringTransferReturnsAndReportsFailure)
+{
+    // Disconnect() first lets outstanding messages drain for up to rxTimeout + 1 s, so the transfer
+    // must outlast that even with precise sleeps: 2000 transactions, 16 in flight, 20 ms each is 2.5 s
+    dev->SetLatency(20ms);
+    auto data = Pattern(64 * 2000);
+    ASSERT_TRUE(cm->MemoryDownload(data, 0, 0, kUuid));
+    std::this_thread::sleep_for(50ms);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    cm->Disconnect();
+    EXPECT_LT(std::chrono::steady_clock::now() - t0, 3s);
+    EXPECT_EQ(events.Count(MessageEvents::MEMORY_TRANSFER_ERROR), 1u);
+    EXPECT_EQ(events.Count(MessageEvents::MEMORY_TRANSFER_COMPLETE), 0u);
 }

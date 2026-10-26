@@ -873,6 +873,7 @@ namespace iMS
 
 					dmah = new DMASupervisor();
 					conn->MessageEventSubscribe(MessageEvents::MEMORY_TRANSFER_COMPLETE, dmah);
+					conn->MessageEventSubscribe(MessageEvents::MEMORY_TRANSFER_ERROR, dmah);
 
 					// Start memory download
 					conn->MemoryDownload(*m_imgdata, ImageMemoryAddress, ImageMemoryIndex, uuid);
@@ -883,6 +884,7 @@ namespace iMS
 					//std::cout << "Memory Download complete" << std::endl;
 
 					conn->MessageEventUnsubscribe(MessageEvents::MEMORY_TRANSFER_COMPLETE, dmah);
+					conn->MessageEventUnsubscribe(MessageEvents::MEMORY_TRANSFER_ERROR, dmah);
 
 					int tfr_size = dmah->GetTransferredSize();
 					delete dmah;
@@ -1126,6 +1128,7 @@ namespace iMS
 
 				dmah = new DMASupervisor();
 				conn->MessageEventSubscribe(MessageEvents::MEMORY_TRANSFER_COMPLETE, dmah);
+				conn->MessageEventSubscribe(MessageEvents::MEMORY_TRANSFER_ERROR, dmah);
 
 				// Start memory upload
 				conn->MemoryUpload(*m_vfydata, ite.Address(), ite.Size(), h, ite.UUID());
@@ -1135,6 +1138,7 @@ namespace iMS
 				}
 
 				conn->MessageEventUnsubscribe(MessageEvents::MEMORY_TRANSFER_COMPLETE, dmah);
+				conn->MessageEventUnsubscribe(MessageEvents::MEMORY_TRANSFER_ERROR, dmah);
 
 				//int tfr_size = dmah->GetTransferredSize();
 				delete dmah;
@@ -2470,6 +2474,7 @@ namespace iMS
 		}
 
 		conn->MessageEventSubscribe(MessageEvents::MEMORY_TRANSFER_COMPLETE, dmah);
+		conn->MessageEventSubscribe(MessageEvents::MEMORY_TRANSFER_ERROR, dmah);
 	}
 
 	SequenceDownload::Impl::~Impl()
@@ -2495,6 +2500,7 @@ namespace iMS
             }
 
             conn->MessageEventUnsubscribe(MessageEvents::MEMORY_TRANSFER_COMPLETE, dmah);
+            conn->MessageEventUnsubscribe(MessageEvents::MEMORY_TRANSFER_ERROR, dmah);
         });
 
 		delete dmah;
