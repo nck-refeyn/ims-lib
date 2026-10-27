@@ -326,7 +326,7 @@ Step 3 needs two deploy keys, since `GITHUB_TOKEN` cannot reach another reposito
 | This repository's CI pushes the trigger tag to imslib-python | imslib-python deploy key, write access | `IMSLIB_PYTHON_DEPLOY_KEY` in ims-lib |
 | imslib-python's CI fetches this repository as its submodule | ims-lib deploy key, read-only | `IMS_LIB_DEPLOY_KEY` in imslib-python |
 
-The trigger commit is made on imslib-python's `master`. To test an imslib-python branch first, set the ims-lib Actions variable `IMSLIB_PYTHON_BRANCH` to it.
+The trigger commit is made on imslib-python's `master`.
 
 ---
 

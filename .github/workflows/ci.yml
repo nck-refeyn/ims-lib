@@ -169,8 +169,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: ${{ github.repository_owner }}/imslib-python
-          # Set the variable to test an imslib-python branch before merging it
-          ref: ${{ vars.IMSLIB_PYTHON_BRANCH || 'master' }}
+          ref: master
           ssh-key: ${{ secrets.IMSLIB_PYTHON_DEPLOY_KEY }}
 
       - name: Push ims-lib-${{ github.ref_name }} to imslib-python
