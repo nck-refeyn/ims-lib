@@ -207,6 +207,7 @@ namespace sim {
         std::size_t m_dropCount = 0;
 
         std::vector<Request> m_log;
+        std::size_t m_processing = 0;  // logged requests not yet applied
         std::size_t m_rejected = 0;
     };
 
