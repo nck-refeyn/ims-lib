@@ -14,6 +14,11 @@
 
 namespace ims_test {
 
+    // RX timeout for tests that push thousands of messages but aren't testing timeouts. Windows CI
+    // runners have been seen to stall the whole process for ~400 ms, which times out every message
+    // in flight under the short timeouts the fixtures use to keep fault-path tests fast.
+    constexpr int kHeavyTrafficRxTimeoutMs = 2000;
+
     // Library logging is silenced unless IMS_TEST_LOG is set to one of
     // trace|debug|info|warning|error, in which case it goes to the console.
     void ConfigureLogging();

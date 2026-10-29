@@ -80,6 +80,7 @@ TEST_F(ImageDownloadTest, DownloadRegistersImageAndFillsMemory)
 // Enable once fixed.
 TEST_F(ImageDownloadTest, DISABLED_VerifyPassesOnIntactMemory)
 {
+    cm().SetTimeouts(100, ims_test::kHeavyTrafficRxTimeoutMs, 10000, 100);
     const auto img = Ramp(500); // ImageDownload keeps a reference to it
     ImageDownload dl(ims(), img);
     Subscribe(dl);
@@ -216,6 +217,7 @@ TEST_F(ICSAImageTest, DISABLED_RepeatedDownloadsOnlySetMsbEnableBit)
 // ~Impl() fixes it. A failure here crashes the test binary. Enable once fixed.
 TEST_F(ImageDownloadTest, DISABLED_DestroyingDownloaderRightAfterVerifyIsSafe)
 {
+    cm().SetTimeouts(100, ims_test::kHeavyTrafficRxTimeoutMs, 10000, 100);
     for (int i = 0; i < 5; i++) {
         const auto img = Ramp(20000);
         ims_test::EventRecorder rec;
