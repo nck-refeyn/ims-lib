@@ -195,6 +195,7 @@ namespace sim {
         bool m_wake = false;
 
         std::vector<Request> m_log;
+        std::size_t m_processing = 0;  // logged requests not yet applied
         std::size_t m_rejected = 0;
     };
 

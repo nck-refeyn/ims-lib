@@ -256,7 +256,8 @@ namespace sim {
     bool SimDevice::WaitForRequests(std::size_t n, std::chrono::milliseconds timeout) const
     {
         std::unique_lock<std::mutex> lk(m_mutex);
-        return m_cv.wait_for(lk, timeout, [&] { return m_log.size() >= n; });
+        // Requests are logged before they are applied, so also wait for the device to finish them
+        return m_cv.wait_for(lk, timeout, [&] { return m_log.size() >= n && m_processing == 0; });
     }
 
     std::size_t SimDevice::RejectedFrames() const
@@ -325,12 +326,16 @@ namespace sim {
             m_cv.notify_all();
             if (!m_present[Index(r.target)]) return;
             handler = m_handler;
+            m_processing++;
         }
 
         std::optional<Response> resp;
         if (handler) resp = (*handler)(r);
 
         std::lock_guard<std::mutex> lk(m_mutex);
+        // Waiters see this only once the lock is released, after the request has been applied
+        m_processing--;
+        m_cv.notify_all();
         if (!resp) resp = DefaultModelLocked(r);
 
         std::optional<Fault> fault;
