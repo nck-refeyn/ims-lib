@@ -91,6 +91,7 @@ TEST(ConnectionManagerClosed, SendIsRejectedWhenNotConnected)
 
 TEST_F(ConnectionManagerTest, PipelinedRequestsMatchTheirResponses)
 {
+    cm->SetTimeouts(100, ims_test::kHeavyTrafficRxTimeoutMs, 10000, 100);
     constexpr int N = 300;
     for (int i = 0; i < N; i++) dev->WriteRegs(Target::Controller, static_cast<std::uint16_t>(100 + i), { static_cast<std::uint16_t>(i * 7) });
 
@@ -105,6 +106,7 @@ TEST_F(ConnectionManagerTest, PipelinedRequestsMatchTheirResponses)
 
 TEST_F(ConnectionManagerTest, ByteAtATimeDeliveryIsReassembled)
 {
+    cm->SetTimeouts(100, ims_test::kHeavyTrafficRxTimeoutMs, 10000, 100);
     dev->SetChunkSize(1);
     dev->SetLatency(200us);
     for (int i = 0; i < 20; i++) {

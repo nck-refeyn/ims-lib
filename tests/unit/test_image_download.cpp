@@ -77,6 +77,7 @@ TEST_F(ImageDownloadTest, DownloadRegistersImageAndFillsMemory)
 
 TEST_F(ImageDownloadTest, VerifyPassesOnIntactMemory)
 {
+    cm().SetTimeouts(100, ims_test::kHeavyTrafficRxTimeoutMs, 10000, 100);
     const auto img = Ramp(500); // ImageDownload keeps a reference to it
     ImageDownload dl(ims(), img);
     Subscribe(dl);
@@ -207,6 +208,7 @@ TEST_F(ICSAImageTest, RepeatedDownloadsOnlySetMsbEnableBit)
 // the heap (0xc0000374, about 4 runs in 5). The workers are now stopped first.
 TEST_F(ImageDownloadTest, DestroyingDownloaderRightAfterVerifyIsSafe)
 {
+    cm().SetTimeouts(100, ims_test::kHeavyTrafficRxTimeoutMs, 10000, 100);
     for (int i = 0; i < 5; i++) {
         const auto img = Ramp(20000);
         ims_test::EventRecorder rec;
