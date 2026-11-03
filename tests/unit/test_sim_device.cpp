@@ -199,10 +199,13 @@ TEST(SimDevice, LatencyDelaysResponse)
 {
     SimDevice dev;
     dev.SetLatency(30ms);
+    // Timed rather than polled early: a short read that wakes late on a loaded machine finds the
+    // response already due
+    const auto sent = SimDevice::Clock::now();
     Send(dev, RegRead(HostReport::Actions::SYNTH_REG, 0, 2));
     std::uint8_t buf[64];
-    EXPECT_EQ(dev.HostRead(buf, sizeof(buf), 5ms), 0u);
-    EXPECT_GT(dev.HostRead(buf, sizeof(buf), 100ms), 0u);
+    EXPECT_GT(dev.HostRead(buf, sizeof(buf), 1000ms), 0u);
+    EXPECT_GE(SimDevice::Clock::now() - sent, 30ms);
 }
 
 TEST(SimDevice, ImageMemoryUsesTransactionAddressing)
