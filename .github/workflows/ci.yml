@@ -1,0 +1,40 @@
+# Builds the library on Linux.
+# No hardware needed; runs on GitHub-hosted runners.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (GCC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libboost-regex-dev libboost-log-dev libxml2-dev xxd
+
+      # CMake runs res/build.sh itself, but it is not marked executable in git
+      - name: Generate embedded resources
+        working-directory: res
+        run: bash build.sh
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build
+        run: cmake --build build -j 4

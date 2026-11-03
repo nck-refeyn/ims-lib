@@ -51,7 +51,7 @@ namespace iMS {
 	class CM_FTDI::Impl
 	{
 	public:
-		Impl::Impl(){}
+		Impl(){}
 
 		// Only accept FTDI Device number with Serial Numbers prefixed with these strings
 		static const std::list<std::string> SerialNumberPrefix;

@@ -119,7 +119,7 @@ fi
 # Configure CMake
 ########################################
 echo "Configuring CMake..."
-CMakeArgs=(-S . -B "$BUILD_DIR" -G "$GENERATOR" -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" -DCMAKE_BUILD_TYPE="$BUILD_TYPE ")
+CMakeArgs=(-S . -B "$BUILD_DIR" -G "$GENERATOR" -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" -DCMAKE_BUILD_TYPE="$BUILD_TYPE")
 if [ "$BUILD_DOCS" -eq 1 ]; then
     CMakeArgs+=("-DBUILD_DOCS=ON")
 fi

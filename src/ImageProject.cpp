@@ -108,7 +108,7 @@ namespace iMS {
 	{
 		// If given a .xml extension filename, output raw textual XML data, otherwise maximally compress
 		int file_compress = 9;
-		std::string file_extension = boost::filesystem::extension(fileName);
+		std::string file_extension = boost::filesystem::path(fileName).extension().string();
 		std::transform(file_extension.begin(),
 				file_extension.end(),
 				file_extension.begin(),
