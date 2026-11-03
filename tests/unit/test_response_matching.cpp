@@ -19,7 +19,8 @@ using namespace std::chrono_literals;
 
 namespace {
 
-    constexpr int kRxTimeoutMs = 100;
+    // Long enough that a loaded machine doesn't time out responses that are on their way
+    constexpr int kRxTimeoutMs = 1000;
     // A register whose value is read back after each sequence, to show the responses are in step
     constexpr std::uint16_t kProbeReg = 200;
     constexpr std::uint16_t kProbeValue = 0x1234;
@@ -68,15 +69,26 @@ namespace {
             cm->Disconnect();
         }
 
-        // Sends all requests back to back, then a read of kProbeReg, and waits for every response
+        // Sends all requests back to back, then a read of kProbeReg, and waits until each has been
+        // answered or has failed (its failure event follows its status change)
         std::vector<DeviceReport> Pipeline(const std::vector<HostReport>& requests)
         {
             std::vector<MessageHandle> h;
             for (const auto& r : requests) h.push_back(cm->SendMsg(r));
             h.push_back(cm->SendMsg(RegRead(kProbeReg)));
-            std::this_thread::sleep_for(std::chrono::milliseconds(3 * kRxTimeoutMs));
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(10 * kRxTimeoutMs);
             std::vector<DeviceReport> responses;
-            for (auto handle : h) responses.push_back(cm->Response(handle));
+            for (;;) {
+                responses.clear();
+                std::size_t pending = 0;
+                for (auto handle : h) {
+                    responses.push_back(cm->Response(handle));
+                    if (!responses.back().Done()) pending++;
+                }
+                const auto reported = events.Count(MessageEvents::RESPONSE_TIMED_OUT) + events.Count(MessageEvents::RESPONSE_ERROR_CRC);
+                if (pending <= reported || std::chrono::steady_clock::now() > deadline) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
             return responses;
         }
 
