@@ -19,7 +19,9 @@ using namespace std::chrono_literals;
 
 namespace {
 
-    constexpr int kRxTimeoutMs = 100;
+    // No test here waits for a request to time out (lost responses are failed by the ones after
+    // them), so this only has to be long enough that a loaded machine doesn't time out the rest
+    constexpr int kRxTimeoutMs = 1000;
     constexpr int kRequests = 40;
     constexpr std::uint16_t kFirstReg = 100;
     constexpr std::uint16_t kFaultReg = 110;
@@ -68,18 +70,27 @@ namespace {
             });
         }
 
+        // Sends the requests and waits until each has been answered or has failed. A request's failure
+        // event follows its status change, so once the failure events account for every request not
+        // answered, none is still in flight. On a loaded machine that can take far longer than the
+        // round trip, so a fixed wait would count requests still in the pipeline as failed.
         Outcome Pipeline()
         {
             std::vector<MessageHandle> h;
             for (int i = 0; i < kRequests; i++) h.push_back(cm->SendMsg(RegRead(static_cast<std::uint16_t>(kFirstReg + i))));
-            // Long enough for every request to be answered or time out
-            std::this_thread::sleep_for(std::chrono::milliseconds(3 * kRxTimeoutMs));
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(10 * kRxTimeoutMs);
             Outcome o;
-            for (int i = 0; i < kRequests; i++) {
-                auto r = cm->Response(h[i]);
-                if (!r.Done() || r.RxCRC()) o.failed++;
-                else if (r.Payload<std::uint16_t>() == 1000 + i && r.Fields().addr == kFirstReg + i) o.answered++;
-                else o.wrong++;
+            for (;;) {
+                o = Outcome{};
+                for (int i = 0; i < kRequests; i++) {
+                    auto r = cm->Response(h[i]);
+                    if (!r.Done() || r.RxCRC()) o.failed++;
+                    else if (r.Payload<std::uint16_t>() == 1000 + i && r.Fields().addr == kFirstReg + i) o.answered++;
+                    else o.wrong++;
+                }
+                const auto reported = events.Count(MessageEvents::RESPONSE_TIMED_OUT) + events.Count(MessageEvents::RESPONSE_ERROR_CRC);
+                if (static_cast<std::size_t>(o.failed) <= reported || std::chrono::steady_clock::now() > deadline) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
             handles = h;
             return o;
@@ -105,7 +116,7 @@ TEST_P(StrayByte, AllResponsesStillReachTheirRequests)
     EXPECT_EQ(o.failed, 0);
     EXPECT_EQ(o.answered, kRequests);
     EXPECT_EQ(events.Count(MessageEvents::RESPONSE_ERROR_VALID), 0u) << "a corrupt frame must not be reported as a device error";
-    EXPECT_GE(events.Count(MessageEvents::UNEXPECTED_RX_CHAR), 1u);
+    EXPECT_TRUE(events.WaitFor(MessageEvents::UNEXPECTED_RX_CHAR));
 }
 
 INSTANTIATE_TEST_SUITE_P(Bytes, StrayByte, ::testing::Values(
