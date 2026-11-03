@@ -133,7 +133,11 @@ TEST_F(MemoryTransferTest, TransactionsBeyond64kUseContextForUpperAddressBits)
     const std::size_t n = (0x10000 + 2) * 64;
     auto data = Pattern(n);
     ASSERT_TRUE(cm->MemoryDownload(data, 0, 0, kUuid));
-    ASSERT_TRUE(events.WaitFor(MessageEvents::MEMORY_TRANSFER_COMPLETE, 1, 30s));
+    // About 2 s on an idle machine, but over 30 s on a loaded Win32 runner
+    const int result = events.WaitForAny({ MessageEvents::MEMORY_TRANSFER_COMPLETE, MessageEvents::MEMORY_TRANSFER_ERROR }, 90s);
+    // A transfer still running when `data` goes out of scope would read freed memory
+    if (result == -1) cm->Disconnect();
+    ASSERT_EQ(result, MessageEvents::MEMORY_TRANSFER_COMPLETE);
 
     auto writes = dev->Requests(HostReport::Actions::CTRLR_IMAGE);
     ASSERT_EQ(writes.size(), 0x10002u);
